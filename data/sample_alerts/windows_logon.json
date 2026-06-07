@@ -1,0 +1,97 @@
+{
+  "agent": {
+    "ip": "192.0.2.17",
+    "name": "agent-endpoint-01",
+    "id": "007"
+  },
+  "manager": {
+    "name": "wazuh"
+  },
+  "data": {
+    "win": {
+      "eventdata": {
+        "subjectLogonId": "0x3e7",
+        "subjectDomainName": "EXAMPLECORP",
+        "targetLinkedLogonId": "0x0",
+        "impersonationLevel": "%%1833",
+        "authenticationPackageName": "Negotiate",
+        "targetLogonId": "0x3e7",
+        "logonProcessName": "Advapi",
+        "logonGuid": "{00000000-0000-0000-0000-000000000000}",
+        "targetUserName": "SYSTEM",
+        "keyLength": "0",
+        "elevatedToken": "%%1842",
+        "subjectUserSid": "S-1-5-18",
+        "processId": "0x28c",
+        "processName": "C:\\\\Windows\\\\System32\\\\services.exe",
+        "targetDomainName": "NT AUTHORITY",
+        "targetUserSid": "S-1-5-18",
+        "virtualAccount": "%%1843",
+        "logonType": "5",
+        "subjectUserName": "ENDPOINT-01$"
+      },
+      "system": {
+        "eventID": "4624",
+        "keywords": "0x8020000000000000",
+        "providerGuid": "{54849625-5478-4994-a5ba-3e3b0328c30d}",
+        "level": "0",
+        "channel": "Security",
+        "opcode": "0",
+        "message": "\"Se inició sesión correctamente en una cuenta.\r\n\r\nFirmante:\r\n\tId. de seguridad:\t\tS-1-5-18\r\n\tNombre de cuenta:\t\tENDPOINT-01$\r\n\tDominio de cuenta:\t\tEXAMPLECORP\r\n\tId. de inicio de sesión:\t\t0x3E7\r\n\r\nInformación de inicio de sesión:\r\n\tTipo de inicio de sesión:\t\t5\r\n\tModo de administrador restringido:\t-\r\n\tCuenta virtual:\t\tNo\r\n\tToken elevado:\t\tSí\r\n\r\nNivel de suplantación:\t\tSuplantación\r\n\r\nNuevo inicio de sesión:\r\n\tId. de seguridad:\t\tS-1-5-18\r\n\tNombre de cuenta:\t\tSYSTEM\r\n\tDominio de cuenta:\t\tNT AUTHORITY\r\n\tId. de inicio de sesión:\t\t0x3E7\r\n\tInicio de sesión vinculado:\t\t0x0\r\n\tNombre de cuenta de red:\t-\r\n\tDominio de cuenta de red:\t-\r\n\tGUID de inicio de sesión:\t\t{00000000-0000-0000-0000-000000000000}\r\n\r\nInformación de proceso:\r\n\tId. de proceso:\t\t0x28c\r\n\tNombre de proceso:\t\tC:\\Windows\\System32\\services.exe\r\n\r\nInformación de red:\r\n\tNombre de estación de trabajo:\t-\r\n\tDirección de red de origen:\t-\r\n\tPuerto de origen:\t\t-\r\n\r\nInformación de autenticación detallada:\r\n\tProceso de inicio de sesión:\t\tAdvapi  \r\n\tPaquete de autenticación:\tNegotiate\r\n\tServicios transitados:\t-\r\n\tNombre de paquete (solo NTLM):\t-\r\n\tLongitud de clave:\t\t0\r\n\r\nEste evento se genera cuando se crea una sesión de inicio. Lo genera el equipo al que se tuvo acceso.\r\n\r\nLos campos de firmante indican la cuenta del sistema local que solicitó el inicio de sesión. Suele ser un servicio como el servicio de servidor o un proceso local como Winlogon.exe o Services.exe.\r\n\r\nEl campo Tipo de inicio de sesión indica la clase de inicio de sesión que se realizó. Los tipos más comunes son 2 (interactivo) y 3 (red).\r\n\r\nLos campos Nuevo inicio de sesión indican la cuenta para la que se creó el nuevo inicio de sesión, es decir, aquella en la que se inició la sesión.\r\n\r\nLos campos de red indican dónde se originó una solicitud de inicio de sesión remota. Nombre de estación de trabajo no está siempre disponible y se puede dejar en blanco en algunos casos.\r\n\r\nEl campo de nivel de suplantación indica en qué medida un proceso en la sesión de inicio de sesión puede suplantar.\r\n\r\nLos campos de información de autenticación proporcionan información detallada sobre esta solicitud de inicio de sesión específica.\r\n\t- GUID de inicio de sesión es un identificador único que se puede usar para correlacionar este evento con un evento KDC.\r\n\t- Servicios transitados indica los servicios intermedios que participaron en esta solicitud de inicio de sesión.\r\n\t- Nombre de paquete indica el subprotocolo que se usó entre los protocolos NTLM.\r\n\t- Longitud de clave indica la longitud de la clave de sesión generada. Será 0 si no se solicitó una clave de sesión.\"",
+        "version": "2",
+        "systemTime": "2026-04-17T18:14:57.916431600Z",
+        "eventRecordID": "93704369",
+        "threadID": "2672",
+        "computer": "endpoint-01.example.local",
+        "task": "12544",
+        "processID": "680",
+        "severityValue": "AUDIT_SUCCESS",
+        "providerName": "Microsoft-Windows-Security-Auditing"
+      }
+    }
+  },
+  "rule": {
+    "firedtimes": 4,
+    "mail": false,
+    "level": 3,
+    "pci_dss": [
+      "10.2.5"
+    ],
+    "hipaa": [
+      "164.312.b"
+    ],
+    "tsc": [
+      "CC6.8",
+      "CC7.2",
+      "CC7.3"
+    ],
+    "description": "Windows Logon Success",
+    "groups": [
+      "windows",
+      "windows_security",
+      "authentication_success"
+    ],
+    "id": "60106",
+    "nist_800_53": [
+      "AU.14",
+      "AC.9"
+    ],
+    "gpg13": [
+      "7.1",
+      "7.2"
+    ],
+    "gdpr": [
+      "IV_32.2"
+    ]
+  },
+  "decoder": {
+    "name": "windows_eventchannel"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-04-17T18:23:03.958Z",
+  "location": "EventChannel",
+  "id": "1776450183.6945543",
+  "timestamp": "2026-04-17T18:23:03.958+0000"
+}

@@ -1,0 +1,76 @@
+{
+  "agent": {
+    "name": "wazuh",
+    "id": "000"
+  },
+  "data": {
+    "srcuser": "hacker",
+    "srcip": "5.5.5.5"
+  },
+  "rule": {
+    "firedtimes": 2,
+    "mail": false,
+    "level": 5,
+    "hipaa": [
+      "164.312.b"
+    ],
+    "pci_dss": [
+      "10.2.4",
+      "10.2.5",
+      "10.6.1"
+    ],
+    "tsc": [
+      "CC6.1",
+      "CC6.8",
+      "CC7.2",
+      "CC7.3"
+    ],
+    "description": "sshd: Attempt to login using a non-existent user",
+    "groups": [
+      "syslog",
+      "sshd",
+      "authentication_failed",
+      "invalid_login"
+    ],
+    "id": "5710",
+    "nist_800_53": [
+      "AU.14",
+      "AC.7",
+      "AU.6"
+    ],
+    "gdpr": [
+      "IV_35.7.d",
+      "IV_32.2"
+    ],
+    "gpg13": [
+      "7.1"
+    ]
+  },
+  "full_log": "Apr 19 04:29:34 wazuh sshd[574200]: Failed password for invalid user hacker from 5.5.5.5 port 22 ssh2",
+  "id": "1776572976.259190",
+  "timestamp": "2026-04-19T04:29:36.292+0000",
+  "predecoder": {
+    "hostname": "wazuh",
+    "program_name": "sshd",
+    "timestamp": "Apr 19 04:29:34"
+  },
+  "manager": {
+    "name": "wazuh"
+  },
+  "decoder": {
+    "parent": "sshd",
+    "name": "sshd"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-04-19T04:29:36.292Z",
+  "location": "journald",
+  "GeoLocation": {
+    "country_name": "Germany",
+    "location": {
+      "lon": 9.491,
+      "lat": 51.2993
+    }
+  }
+}

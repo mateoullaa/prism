@@ -1,0 +1,43 @@
+{
+  "agent": {
+    "ip": "192.0.2.50",
+    "name": "agent-backup-01",
+    "id": "012"
+  },
+  "manager": {
+    "name": "wazuh"
+  },
+  "data": {
+    "integration": "virustotal",
+    "virustotal": {
+      "malicious": "0",
+      "found": "0",
+      "source": {
+        "sha1": "8c8bdf9fb78dda6e14a5700f651c3ea7b50c03d4",
+        "file": "HKEY_LOCAL_MACHINE\\System\\CurrentControlSet\\Services\\VSS\\Diag\\VolSnap",
+        "alert_id": "1776412470.3065317",
+        "md5": "ae783d86f4cbdf308690c3615e946f94"
+      }
+    }
+  },
+  "rule": {
+    "firedtimes": 2,
+    "mail": false,
+    "level": 3,
+    "description": "VirusTotal: Alert - No records in VirusTotal database",
+    "groups": [
+      "virustotal"
+    ],
+    "id": "87103"
+  },
+  "decoder": {
+    "name": "json"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-04-17T07:54:31.887Z",
+  "location": "virustotal",
+  "id": "1776412471.3085062",
+  "timestamp": "2026-04-17T07:54:31.887+0000"
+}

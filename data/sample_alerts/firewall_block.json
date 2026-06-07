@@ -1,0 +1,127 @@
+{
+  "agent": {
+    "ip": "192.0.2.10",
+    "name": "agent-web-01",
+    "id": "008"
+  },
+  "manager": {
+    "name": "wazuh"
+  },
+  "data": {
+    "srcip": "59.44.42.9",
+    "origin": {
+      "module": "wazuh-execd",
+      "name": "node01"
+    },
+    "version": "1",
+    "parameters": {
+      "alert": {
+        "agent": {
+          "ip": "192.0.2.10",
+          "name": "agent-web-01",
+          "id": "008"
+        },
+        "manager": {
+          "name": "wazuh"
+        },
+        "data": {
+          "srcip": "59.44.42.9",
+          "srcport": "57452",
+          "id": "AH00126"
+        },
+        "rule": {
+          "firedtimes": "1",
+          "mail": "false",
+          "level": "5",
+          "hipaa": [
+            "164.312.b"
+          ],
+          "pci_dss": [
+            "10.2.4"
+          ],
+          "tsc": [
+            "CC6.1",
+            "CC6.8",
+            "CC7.2",
+            "CC7.3"
+          ],
+          "description": "Apache: Invalid URI (bad client request).",
+          "groups": [
+            "apache",
+            "web",
+            "invalid_request"
+          ],
+          "id": "30315",
+          "nist_800_53": [
+            "AU.14",
+            "AC.7"
+          ],
+          "gdpr": [
+            "IV_35.7.d"
+          ]
+        },
+        "location": "/var/log/apache2/error.log",
+        "id": "1776395599.1427411",
+        "decoder": {
+          "parent": "apache-errorlog",
+          "name": "apache-errorlog"
+        },
+        "timestamp": "2026-04-17T03:13:19.622+0000",
+        "full_log": "[Fri Apr 17 03:13:18.343746 2026] [core:error] [pid 24694:tid 139817610303232] [client 59.44.42.9:57452] AH00126: Invalid URI in request POST /cgi-bin/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/bin/sh HTTP/1.1"
+      },
+      "extra_args": [],
+      "program": "active-response/bin/firewall-drop"
+    },
+    "command": "add"
+  },
+  "rule": {
+    "firedtimes": 1,
+    "mail": false,
+    "level": 3,
+    "pci_dss": [
+      "11.4"
+    ],
+    "tsc": [
+      "CC6.1",
+      "CC6.8",
+      "CC7.2",
+      "CC7.3",
+      "CC7.4"
+    ],
+    "description": "Host Blocked by firewall-drop Active Response",
+    "groups": [
+      "ossec",
+      "active_response"
+    ],
+    "id": "651",
+    "nist_800_53": [
+      "SI.4"
+    ],
+    "gpg13": [
+      "4.13"
+    ],
+    "gdpr": [
+      "IV_35.7.d"
+    ]
+  },
+  "decoder": {
+    "parent": "ar_log_json",
+    "name": "ar_log_json"
+  },
+  "full_log": "2026/04/17 03:13:19 active-response/bin/firewall-drop: {\"version\":1,\"origin\":{\"name\":\"node01\",\"module\":\"wazuh-execd\"},\"command\":\"add\",\"parameters\":{\"extra_args\":[],\"alert\":{\"timestamp\":\"2026-04-17T03:13:19.622+0000\",\"rule\":{\"level\":5,\"description\":\"Apache: Invalid URI (bad client request).\",\"id\":\"30315\",\"firedtimes\":1,\"mail\":false,\"groups\":[\"apache\",\"web\",\"invalid_request\"],\"gdpr\":[\"IV_35.7.d\"],\"hipaa\":[\"164.312.b\"],\"nist_800_53\":[\"AU.14\",\"AC.7\"],\"pci_dss\":[\"10.2.4\"],\"tsc\":[\"CC6.1\",\"CC6.8\",\"CC7.2\",\"CC7.3\"]},\"agent\":{\"id\":\"008\",\"name\":\"agent-web-01\",\"ip\":\"192.0.2.10\"},\"manager\":{\"name\":\"wazuh\"},\"id\":\"1776395599.1427411\",\"full_log\":\"[Fri Apr 17 03:13:18.343746 2026] [core:error] [pid 24694:tid 139817610303232] [client 59.44.42.9:57452] AH00126: Invalid URI in request POST /cgi-bin/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/.%2e/bin/sh HTTP/1.1\",\"decoder\":{\"parent\":\"apache-errorlog\",\"name\":\"apache-errorlog\"},\"data\":{\"srcip\":\"59.44.42.9\",\"srcport\":\"57452\",\"id\":\"AH00126\"},\"location\":\"/var/log/apache2/error.log\"},\"program\":\"active-response/bin/firewall-drop\"}}",
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-04-17T03:13:21.631Z",
+  "location": "/var/ossec/logs/active-responses.log",
+  "id": "1776395601.1427982",
+  "GeoLocation": {
+    "country_name": "China",
+    "region_name": "Liaoning",
+    "location": {
+      "lon": 123.4312,
+      "lat": 41.7806
+    }
+  },
+  "timestamp": "2026-04-17T03:13:21.631+0000"
+}

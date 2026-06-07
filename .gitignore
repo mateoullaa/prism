@@ -1,0 +1,16 @@
+.env
+data/real_alerts/
+*.real.json
+metrics/
+*.csv
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+# settings.local.json = overrides personales no compartidos
+.claude/settings.local.json

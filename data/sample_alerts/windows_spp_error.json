@@ -1,0 +1,64 @@
+{
+  "agent": {
+    "ip": "192.0.2.17",
+    "name": "agent-endpoint-01",
+    "id": "007"
+  },
+  "manager": {
+    "name": "wazuh"
+  },
+  "data": {
+    "win": {
+      "eventdata": {
+        "data": "0x80070002, 2026-04-18T09:07:23Z"
+      },
+      "system": {
+        "eventID": "16385",
+        "eventSourceName": "Software Protection Platform Service",
+        "keywords": "0x80000000000000",
+        "providerGuid": "{E23B33B0-C8C9-472C-A5F9-F2BDFEA0F156}",
+        "level": "2",
+        "channel": "Application",
+        "opcode": "0",
+        "message": "\"No se pudo programar el servicio de protección de software para reiniciarse a las 2026-04-18T09:07:23Z. Código de error: 0x80070002.\"",
+        "version": "0",
+        "systemTime": "2026-04-17T23:38:23.379058600Z",
+        "eventRecordID": "2776483",
+        "threadID": "0",
+        "computer": "endpoint-01.example.local",
+        "task": "0",
+        "processID": "0",
+        "severityValue": "ERROR",
+        "providerName": "Microsoft-Windows-Security-SPP"
+      }
+    }
+  },
+  "rule": {
+    "firedtimes": 82,
+    "mail": false,
+    "level": 9,
+    "description": "Windows application error event.",
+    "groups": [
+      "windows",
+      "windows_application",
+      "system_error"
+    ],
+    "id": "60602",
+    "gdpr": [
+      "IV_35.7.d"
+    ],
+    "gpg13": [
+      "4.3"
+    ]
+  },
+  "decoder": {
+    "name": "windows_eventchannel"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-04-17T23:46:28.724Z",
+  "location": "EventChannel",
+  "id": "1776469588.9131668",
+  "timestamp": "2026-04-17T23:46:28.724+0000"
+}
