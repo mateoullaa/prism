@@ -32,4 +32,6 @@ Format: `[date] category — learning / decision`.
 - [2026-06] VirusTotal free API ≈ 4 req/min. Handle rate limiting in the enricher.
 
 ## Resolved errors
-(empty)
+- [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks
+  `pip install` for 3.14 venv. Workaround: run tests directly with 3.14 interpreter:
+  `"C:/Users/usuario/AppData/Local/Python/pythoncore-3.14-64/python.exe" -m pytest tests/...`

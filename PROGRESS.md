@@ -9,12 +9,12 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 ## MVP v1 — Build sequence (strict order, do not skip)
 
 - [x] Harness: structure, `.claude/` (agents, commands, hooks), `init.sh`, docs, fixtures
-- [ ] **1. `tools/parser.py`** — classify type + extract IOCs *(no server, no Ollama)*
-  - [ ] Handle wrapped `_source` format and direct format
-  - [ ] Classifier for the 5 alert types
-  - [ ] IOC extraction per type (with private IP filter)
-  - [ ] `tests/test_parser.py` against all 6 fixtures
-  - [ ] `workflows/parser.md`
+- [x] **1. `tools/parser.py`** — classify type + extract IOCs *(no server, no Ollama)*
+  - [x] Handle wrapped `_source` format and direct format
+  - [x] Classifier for the 5 alert types
+  - [x] IOC extraction per type (with private IP filter)
+  - [x] `tests/test_parser.py` against all 6 fixtures (25/25 passing)
+  - [x] `workflows/parser.md`
 - [ ] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB *(public APIs, no server)*
   - [ ] VirusTotal client with rate limiting (~4 req/min free tier)
   - [ ] AbuseIPDB client
@@ -37,7 +37,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 - Own SSH credentials (ask the team; do not use a shared user).
 
 ## Next immediate step
-Build `tools/parser.py` + test + workflow. Does not require server or Ollama. Use `/build-tool parser`.
+Build `tools/enricher.py` (VirusTotal + AbuseIPDB, public APIs, no server). Use `/build-tool enricher`.
 
 ## v2 ideas (DO NOT implement now)
 - Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
