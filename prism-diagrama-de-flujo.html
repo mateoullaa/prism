@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prism — Agente de Inteligencia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0f14;
+    --panel:#121922;
+    --panel-2:#0f151d;
+    --line:#243140;
+    --ink:#e6edf3;
+    --muted:#7d8da0;
+    --dim:#56657a;
+    --accent:#34d3c0;      /* prism teal */
+    --accent-soft:#1d6f67;
+    --amber:#e6b450;
+    --replace:#e5697a;
+    --new-glow:rgba(52,211,192,.14);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:
+      radial-gradient(900px 500px at 80% -10%, rgba(52,211,192,.07), transparent 60%),
+      radial-gradient(700px 400px at 0% 110%, rgba(230,180,80,.05), transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font-family:'IBM Plex Sans',sans-serif;
+    line-height:1.5;
+    padding:48px 24px 64px;
+    min-height:100vh;
+  }
+  .wrap{max-width:1080px;margin:0 auto}
+
+  /* ---- Header ---- */
+  header{margin-bottom:40px;position:relative}
+  .spectrum{height:4px;width:120px;border-radius:4px;margin-bottom:22px;
+    background:linear-gradient(90deg,#e5697a,#e6b450,#34d3c0,#5b8def,#9b6ef3);}
+  h1{font-family:'Bricolage Grotesque',sans-serif;font-weight:800;
+    font-size:clamp(34px,5vw,52px);letter-spacing:-.02em;line-height:1.02}
+  h1 .sub{color:var(--accent)}
+  .tagline{color:var(--muted);font-size:16px;margin-top:12px;max-width:680px}
+  .tagline code{font-family:'IBM Plex Mono',monospace;color:var(--ink);
+    background:var(--panel);padding:1px 6px;border-radius:4px;font-size:13px}
+
+  /* ---- Legend ---- */
+  .legend{display:flex;flex-wrap:wrap;gap:18px;margin:24px 0 8px;
+    font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)}
+  .legend span{display:flex;align-items:center;gap:7px}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .dot.new{background:var(--accent)}
+  .dot.exist{background:var(--dim)}
+  .dot.repl{background:var(--replace)}
+
+  /* ---- Zones ---- */
+  .zone{border:1px solid var(--line);border-radius:16px;padding:22px 22px 26px;
+    margin-top:18px;background:linear-gradient(180deg,var(--panel),var(--panel-2))}
+  .zone.prism{border-color:var(--accent-soft);
+    box-shadow:0 0 0 1px rgba(52,211,192,.12), 0 24px 60px -30px rgba(52,211,192,.4);
+    background:linear-gradient(180deg,#10201f,#0d1620)}
+  .zone-label{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--dim);margin-bottom:18px;display:flex;
+    align-items:center;gap:10px}
+  .zone.prism .zone-label{color:var(--accent)}
+  .zone-label .tag{margin-left:auto;font-size:10px;padding:3px 9px;border-radius:20px;
+    border:1px solid var(--line);color:var(--muted);letter-spacing:.1em}
+  .zone.prism .zone-label .tag{border-color:var(--accent-soft);color:var(--accent)}
+
+  /* ---- Nodes ---- */
+  .node{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:15px 18px;position:relative}
+  .node .k{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--accent);
+    font-weight:500;margin-bottom:5px;display:flex;align-items:center;gap:8px}
+  .zone.exist .node .k{color:var(--muted)}
+  .node .t{font-size:14px;font-weight:600;color:var(--ink);margin-bottom:3px}
+  .node .d{font-size:12.5px;color:var(--muted)}
+  .node .d code{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim)}
+
+  .num{width:22px;height:22px;border-radius:6px;background:var(--accent-soft);
+    color:#04110f;font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:12px;
+    display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
+  .zone.exist .num{background:var(--line);color:var(--muted)}
+
+  .flow{display:flex;flex-direction:column;gap:0}
+  .arrow{height:26px;width:2px;background:var(--line);margin:6px 0 6px 28px;position:relative}
+  .arrow::after{content:"";position:absolute;bottom:-1px;left:-3px;width:8px;height:8px;
+    border-right:2px solid var(--line);border-bottom:2px solid var(--line);
+    transform:rotate(45deg)}
+  .zone.prism .arrow{background:var(--accent-soft)}
+  .zone.prism .arrow::after{border-color:var(--accent-soft)}
+
+  /* ---- Decision branch ---- */
+  .branch{border:1px dashed var(--amber);border-radius:12px;padding:14px 18px;
+    background:rgba(230,180,80,.05)}
+  .branch .k{color:var(--amber);font-family:'IBM Plex Mono',monospace;font-size:12px;
+    font-weight:500;margin-bottom:6px}
+  .branch .paths{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px}
+  .path{font-size:12.5px;color:var(--muted);border-left:2px solid var(--line);padding-left:10px}
+  .path b{color:var(--ink);font-weight:600}
+  .path.yes{border-color:var(--accent)}
+  .path.no{border-color:var(--dim)}
+
+  /* enricher detail chips */
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);
+    border:1px solid var(--line);border-radius:20px;padding:3px 10px}
+
+  /* verdict box */
+  .verdict{margin-top:9px;display:grid;grid-template-columns:repeat(2,1fr);gap:7px;
+    font-family:'IBM Plex Mono',monospace;font-size:11px}
+  .verdict div{background:var(--panel-2);border:1px solid var(--line);border-radius:7px;
+    padding:7px 10px;color:var(--muted)}
+  .verdict b{color:var(--accent);font-weight:500}
+
+  .replaced{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;
+    font-family:'IBM Plex Mono',monospace;color:var(--replace);margin-top:14px;
+    border:1px solid rgba(229,105,122,.3);border-radius:8px;padding:7px 12px;
+    background:rgba(229,105,122,.06)}
+  .replaced s{opacity:.8}
+
+  .zone-arrow{display:flex;flex-direction:column;align-items:center;gap:0;margin:6px 0}
+  .za-line{width:2px;height:20px;background:var(--line)}
+  .za-cap{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--dim);
+    letter-spacing:.1em;padding:5px 0}
+  .za-head{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;
+    border-top:8px solid var(--line)}
+
+  footer{margin-top:36px;border-top:1px solid var(--line);padding-top:18px;
+    display:flex;flex-wrap:wrap;gap:20px;justify-content:space-between;align-items:center}
+  .v2{font-size:12.5px;color:var(--muted);max-width:560px}
+  .v2 b{color:var(--ink)}
+  .v2 .pill{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--amber);
+    border:1px solid rgba(230,180,80,.3);border-radius:20px;padding:2px 9px;margin-right:6px}
+  .sig{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--dim);text-align:right}
+
+  @media(max-width:620px){
+    .branch .paths,.verdict{grid-template-columns:1fr}
+    footer{flex-direction:column;align-items:flex-start}
+    .sig{text-align:left}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="spectrum"></div>
+    <h1>Prism <span class="sub">— agente de inteligencia</span></h1>
+    <p class="tagline">Capa de inteligencia que se inserta como punto de entrada del SOC: recibe la alerta de Wazuh, la analiza con un LLM local, y devuelve un veredicto estructurado al workflow de Shuffle existente. Reemplaza a Cortex.</p>
+    <div class="legend">
+      <span><i class="dot new"></i> Componente nuevo (Prism)</span>
+      <span><i class="dot exist"></i> Infraestructura existente (Shuffle / TheHive)</span>
+      <span><i class="dot repl"></i> Reemplazado</span>
+    </div>
+  </header>
+
+  <!-- ZONE 1: SOURCE -->
+  <div class="zone exist">
+    <div class="zone-label">Origen <span class="tag">existente</span></div>
+    <div class="node">
+      <div class="k"><span class="num">·</span> Wazuh</div>
+      <div class="t">Alerta de seguridad (JSON)</div>
+      <div class="d">~6.320 alertas / 3 días. ~61% es un único falso positivo recurrente. Se envía por webhook.</div>
+    </div>
+  </div>
+
+  <div class="zone-arrow"><div class="za-line"></div><div class="za-cap">POST /analyze</div><div class="za-head"></div></div>
+
+  <!-- ZONE 2: PRISM -->
+  <div class="zone prism">
+    <div class="zone-label">Prism — análisis de inteligencia <span class="tag">nuevo · v1</span></div>
+    <div class="flow">
+
+      <div class="node">
+        <div class="k"><span class="num">1</span> parser.py</div>
+        <div class="t">Clasifica el tipo de alerta y extrae IOCs</div>
+        <div class="d">5 tipos: windows · network/firewall · ssh · vulnerability · virustotal. Marca si hay IOCs externos.</div>
+      </div>
+
+      <div class="arrow"></div>
+
+      <div class="branch">
+        <div class="k">¿La alerta tiene IOCs externos? (enriquecimiento condicional)</div>
+        <div class="paths">
+          <div class="path no"><b>No (~85%)</b><br>Sin IP/hash externo → saltea el enriquecimiento y va directo al reasoner. Ahorra cuota de API.</div>
+          <div class="path yes"><b>Sí (~15%)</b><br>Pasa al enricher antes del reasoner.</div>
+        </div>
+      </div>
+
+      <div class="arrow"></div>
+
+      <div class="node">
+        <div class="k"><span class="num">2</span> enricher.py <span style="color:var(--dim);font-weight:400">· condicional</span></div>
+        <div class="t">Enriquece IOCs con inteligencia pública</div>
+        <div class="d">Consulta en paralelo, con rate-limit fail-fast y caché TTL en memoria.</div>
+        <div class="chips">
+          <span class="chip">VirusTotal</span>
+          <span class="chip">AbuseIPDB</span>
+          <span class="chip">token bucket</span>
+          <span class="chip">TTL cache</span>
+        </div>
+        <div class="replaced"><span>↺ reemplaza a Cortex analyzers</span> </div>
+      </div>
+
+      <div class="arrow"></div>
+
+      <div class="node">
+        <div class="k"><span class="num">3</span> reasoner.py</div>
+        <div class="t">LLM local (Ollama) — análisis de inteligencia</div>
+        <div class="d">Razona sobre la alerta + el enriquecimiento. On-premise, sin exponer datos a servicios externos.</div>
+        <div class="verdict">
+          <div>verdict: <b>FP / TP / review</b></div>
+          <div>confidence: <b>high/med/low</b></div>
+          <div>mitre: <b>técnica ATT&CK</b></div>
+          <div>next_action: <b>recomendación</b></div>
+        </div>
+      </div>
+
+      <div class="arrow"></div>
+
+      <div class="node">
+        <div class="k"><span class="num">4</span> router.py</div>
+        <div class="t">Devuelve el veredicto estructurado (JSON)</div>
+        <div class="d">v1: siempre devuelve a Shuffle. El logger registra métricas en CSV.</div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="zone-arrow"><div class="za-line"></div><div class="za-cap">veredicto JSON → Shuffle</div><div class="za-head"></div></div>
+
+  <!-- ZONE 3: EXISTING SHUFFLE PIPELINE -->
+  <div class="zone exist">
+    <div class="zone-label">Shuffle<span class="tag">Workflow existente</span></div>
+    <div class="flow">
+      <div class="node">
+        <div class="k"><span class="num">·</span> Shuffle (SOAR)</div>
+        <div class="t">Recibe el veredicto de Prism y continúa el flujo</div>
+        <div class="d">Crea el caso en TheHive, agrega observables, y dispara la notificación. Esta parte queda como está.</div>
+      </div>
+      <div class="arrow"></div>
+      <div class="node">
+        <div class="k"><span class="num">·</span> TheHive + notificación</div>
+        <div class="t">Caso creado + alerta al analista</div>
+        <div class="d">El analista recibe el caso ya enriquecido y con un veredicto preliminar, no una alerta cruda.</div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="v2">
+      <span class="pill">v2 · futuro</span>
+      <b>Próximas iteraciones:</b> aprendizaje en runtime con RAG + ChromaDB, filtrado automático de FPs validado con métricas, y posibles fuentes extra (Shodan, OTX).
+    </div>
+    <div class="sig">Prism · v1<br>capa de inteligencia para triage SOC</div>
+  </footer>
+
+</div>
+</body>
+</html>
