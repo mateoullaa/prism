@@ -9,10 +9,14 @@ echo "=== INIT: Prism ==="
 
 # 1. Required core files
 REQUIRED=("CLAUDE.md" "memory.md" "PROGRESS.md" \
-          "docs/ARCHITECTURE.md" "docs/CONVENTIONS.md" "docs/CONTEXT.md")
+          "docs/ARCHITECTURE.md" "docs/CONVENTIONS.md")
 for f in "${REQUIRED[@]}"; do
   if [[ -f "$f" ]]; then echo "  ok   $f"; else echo "  MISS $f"; FAIL=1; fi
 done
+
+# 1b. Local-only context (gitignored; intentionally not in the public repo)
+if [[ -f "docs/CONTEXT.md" ]]; then echo "  ok   docs/CONTEXT.md (local)"; else
+  echo "  info docs/CONTEXT.md not present (local-only, optional)"; fi
 
 # 2. Directory structure
 for d in tools tests workflows data/sample_alerts .claude/agents .claude/commands; do

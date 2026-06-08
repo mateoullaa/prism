@@ -29,12 +29,12 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 - [ ] **4. `tools/router.py`** — action decision (v1: always return to Shuffle)
 - [ ] **5. `tools/logger.py`** — metrics in CSV (timestamp, type, verdict, time)
 - [ ] **6. `main.py`** — FastAPI, endpoint `POST /analyze`, orchestration
-- [ ] **7. Shuffle integration** — coordinate with the team
+- [ ] **7. Shuffle integration** — coordinate with the SOC team
 
 ## Blocked / waiting
 - Reasoner and anything using Ollama: server running + `OLLAMA_HOST=0.0.0.0:11434`
   config agreed with the team.
-- Own SSH credentials (ask the team; do not use a shared user).
+- Own SSH credentials for the server (request a personal account; do not use a shared user).
 
 ## Next immediate step
 Build `tools/reasoner.py` (LLM via Ollama; requires server running + OLLAMA_HOST config agreed with the team). Use `/build-tool reasoner`.

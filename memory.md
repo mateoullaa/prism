@@ -18,7 +18,7 @@ Format: `[date] category — learning / decision`.
   returns to Shuffle. TheHive, runtime learning, and automatic FP filtering are v2.
 - [2026-06] v1 uses DEVELOPMENT memory, not runtime learning.
 - [2026-06] Local LLM with Ollama, no data exposure. Suggested initial model: qwen2.5:7b
-  (adjust based on server specs and JSON output quality). the team uses llama.
+  (adjust based on server specs and JSON output quality).
 - [2026-06] Dev of parser/enricher on Windows (no server). Reasoner with remote Ollama
   (option A). Final deployment on the server (option B).
 - [2026-06] Server connection via SSH from Git Bash (not PuTTY). VPN FortiClient first.
