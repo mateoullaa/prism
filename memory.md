@@ -30,6 +30,10 @@ Format: `[date] category — learning / decision`.
 - [2026-06] ~85% of alerts have no external IOCs → conditional enrichment.
 - [2026-06] Wazuh already includes GeoLocation in network/SSH alerts. Do not geolocate separately.
 - [2026-06] VirusTotal free API ≈ 4 req/min. Handle rate limiting in the enricher.
+- [2026-06] Enricher clients (RateLimiter + TTLCache) must be module-level singletons in main.py
+  and injected via clients= param, or VT rate limit won't hold across alerts.
+- [2026-06] Dependencies (requests, python-dotenv) installed system-wide Python 3.14 via
+  `pip install --isolated` (venv pip.ini broken). Both in requirements.txt.
 
 ## Resolved errors
 - [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks

@@ -15,12 +15,12 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] IOC extraction per type (with private IP filter)
   - [x] `tests/test_parser.py` against all 6 fixtures (25/25 passing)
   - [x] `workflows/parser.md`
-- [ ] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB *(public APIs, no server)*
-  - [ ] VirusTotal client with rate limiting (~4 req/min free tier)
-  - [ ] AbuseIPDB client
-  - [ ] Parallel (ThreadPoolExecutor) + failure handling without breaking the pipeline
-  - [ ] Tests with mocked external calls
-  - [ ] `workflows/enricher.md`
+- [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB *(public APIs, no server)*
+  - [x] VirusTotal client with rate limiting (~4 req/min free tier)
+  - [x] AbuseIPDB client
+  - [x] Parallel (ThreadPoolExecutor) + failure handling without breaking the pipeline
+  - [x] Tests with mocked external calls (21 tests passing; 46/46 total with parser, no regressions)
+  - [x] `workflows/enricher.md`
 - [ ] **3. `tools/reasoner.py`** — LLM via Ollama *(REQUIRES server running)*
   - [ ] Ollama client (`/api/generate`)
   - [ ] Analysis prompt (iterate with real fixtures)
@@ -37,7 +37,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 - Own SSH credentials (ask the team; do not use a shared user).
 
 ## Next immediate step
-Build `tools/enricher.py` (VirusTotal + AbuseIPDB, public APIs, no server). Use `/build-tool enricher`.
+Build `tools/reasoner.py` (LLM via Ollama; requires server running + OLLAMA_HOST config agreed with the team). Use `/build-tool reasoner`.
 
 ## v2 ideas (DO NOT implement now)
 - Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
