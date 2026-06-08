@@ -26,7 +26,7 @@ Format: `[date] category — learning / decision`.
 
 ## Technical learnings
 - [2026-06] Real corpus: 6,320 alerts / 3 days. 61% is a single FP: Rule 60602 (Windows SPP
-  service, an endpoint agent, every ~30s). Test case #1 for FP detection.
+  service, on an endpoint agent, every ~30s). Test case #1 for FP detection.
 - [2026-06] ~85% of alerts have no external IOCs → conditional enrichment.
 - [2026-06] Wazuh already includes GeoLocation in network/SSH alerts. Do not geolocate separately.
 - [2026-06] VirusTotal free API ≈ 4 req/min. Handle rate limiting in the enricher.

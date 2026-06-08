@@ -2,7 +2,6 @@
 
 [![tests](https://github.com/mateoullaa/prism/actions/workflows/tests.yml/badge.svg)](https://github.com/mateoullaa/prism/actions/workflows/tests.yml)
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
-![license](https://img.shields.io/badge/license-MIT-green)
 ![status](https://img.shields.io/badge/status-v1%20in%20progress-orange)
 
 > *Named **Prism** — a prism separates light from noise, which is exactly what this agent does with security alerts.*
@@ -152,9 +151,3 @@ docs/       Architecture and conventions
 data/       Anonymized alert fixtures
 .claude/    Dev harness: subagents, commands, hooks
 ```
-
----
-
-## License
-
-[MIT](LICENSE) © 2026 Mateo Ulla · *Sample alerts are anonymized; no real or company data is included.*
