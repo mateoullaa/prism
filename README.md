@@ -4,7 +4,7 @@
 ![python](https://img.shields.io/badge/python-3.10%2B-blue)
 ![status](https://img.shields.io/badge/status-v1%20in%20progress-orange)
 
-> *Named **Prism** — a prism separates light from noise, which is exactly what this agent does with security alerts.*
+> _Named **Prism** — a prism separates light from noise, which is exactly what this agent does with security alerts._
 
 An on-premise agent that automates the **first intelligence layer of SOC triage**. It receives
 [Wazuh](https://wazuh.com/) alerts via webhook, classifies them, enriches IOCs with public threat
@@ -57,7 +57,11 @@ An SSH brute-force attempt comes in:
 
 ```json
 {
-  "rule": { "id": "5710", "level": 5, "description": "sshd: Attempt to login using a non-existent user" },
+  "rule": {
+    "id": "5710",
+    "level": 5,
+    "description": "sshd: Attempt to login using a non-existent user"
+  },
   "data": { "srcip": "5.5.5.5", "srcuser": "hacker" },
   "decoder": { "name": "sshd" },
   "GeoLocation": { "country_name": "Germany" }
@@ -73,7 +77,7 @@ Prism returns a reasoned verdict:
   "enrichment": {
     "5.5.5.5": {
       "virustotal": { "malicious": 7, "suspicious": 1 },
-      "abuseipdb":  { "abuse_confidence_score": 100, "total_reports": 42 }
+      "abuseipdb": { "abuse_confidence_score": 100, "total_reports": 42 }
     }
   },
   "verdict": "TRUE_POSITIVE",
@@ -91,8 +95,8 @@ Prism returns a reasoned verdict:
 
 v1 is built incrementally, one component at a time, each with tests before moving on.
 
-- [x] **Parser** — alert classification + IOC extraction · *25 tests*
-- [x] **Enricher** — VirusTotal + AbuseIPDB, rate limiting + cache · *21 tests*
+- [x] **Parser** — alert classification + IOC extraction · _25 tests_
+- [x] **Enricher** — VirusTotal + AbuseIPDB, rate limiting + cache · _21 tests_
 - [ ] **Reasoner** — local LLM verdict (Ollama)
 - [ ] **Router / Logger** — return to Shuffle + CSV metrics
 - [ ] **FastAPI service** — `POST /analyze` orchestration
@@ -151,3 +155,5 @@ docs/       Architecture and conventions
 data/       Anonymized alert fixtures
 .claude/    Dev harness: subagents, commands, hooks
 ```
+
+© 2026 Mateo Ulla · Sample alerts are anonymized; no real or company data is included.
