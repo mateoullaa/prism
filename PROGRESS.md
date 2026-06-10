@@ -9,14 +9,14 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 ## MVP v1 — Build sequence (strict order, do not skip)
 
 - [x] Harness: structure, `.claude/` (agents, commands, hooks), `init.sh`, docs, fixtures
-- [~] **1. `tools/parser.py`** — classify type + extract IOCs *(no server, no Ollama)*
+- [x] **1. `tools/parser.py`** — classify type + extract IOCs *(no server, no Ollama)*
   - [x] Handle wrapped `_source` format and direct format
   - [x] Classifier for the 5 alert types
   - [x] IOC extraction per type (with private IP filter)
   - [x] `tests/test_parser.py` against all 6 fixtures (25/25 passing)
   - [x] `workflows/parser.md`
-  - [ ] Categorization axis by nature (informational / internal movement / public attack); firm criterion only for public attack; other two PENDING refinement with data
-  - [ ] Public attack detection: configurable list of decoder + groups + external srcip. Initial list (3-day corpus): `ar_log_json` + `active_response`/`ossec` (firewall); `apache-errorlog` + `apache`/`web`/`invalid_request` (web attacks)
+  - [x] Categorization axis by nature: `nature_category` field (public_attack / internal_movement / informational / unknown); INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES constants; evaluation order: public_attack → internal_movement → informational → unknown; 10 new tests (69/69 total)
+  - [x] Public attack detection: decoder + groups + external srcip. Initial list: `ar_log_json` + `active_response`/`ossec` (firewall); `apache-errorlog` + `apache`/`web`/`invalid_request` (web attacks)
 - [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB *(public APIs, no server)*
   - [x] VirusTotal client with rate limiting (~4 req/min free tier)
   - [x] AbuseIPDB client
@@ -39,7 +39,8 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 - Own SSH credentials for the server (request a personal account; do not use a shared user).
 
 ## Next immediate step
-Update `tools/parser.py` with new decisions: categorization by nature + public attack detection (configurable decoder/groups + external srcip). Then build `tools/reasoner.py` (LLM via Ollama).
+Build `tools/reasoner.py` (LLM via Ollama; can now use `nature_category` from parser output).
+*Blocked:* Ollama server running, `OLLAMA_HOST=0.0.0.0:11434` agreed with the team.
 
 ## v2 ideas (DO NOT implement now)
 - OTX (AlienVault) as additional enrichment source.

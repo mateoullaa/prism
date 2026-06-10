@@ -1,12 +1,76 @@
 """
 parser.py — Wazuh alert parser for the AI triage pipeline.
 
-Classifies an alert by type, extracts IOCs, and returns a structured dict
-ready for the enricher or reasoner. No external calls; pure stdlib.
+Classifies an alert by type, extracts IOCs, categorizes by nature, and returns
+a structured dict ready for the enricher or reasoner. No external calls; pure stdlib.
 """
 
 import ipaddress
 from typing import Any
+
+
+# ---------------------------------------------------------------------------
+# Configurable list of (decoder, groups) signatures for public attack detection.
+#
+# An alert is classified as "public_attack" when:
+#   (a) decoder.name == entry["decoder"]  AND
+#   (b) at least ONE of entry["groups"] appears in rule.groups  AND
+#   (c) at least one relevant srcip in the alert is a public (non-private) IP.
+#
+# Extend this list as new attack patterns are observed in corpus data.
+# rule.level is intentionally excluded — corpus evidence shows it does not
+# separate attacks from noise (external IPs appear across levels 3–5;
+# levels 9–10 are dominated by internal events).
+# ---------------------------------------------------------------------------
+PUBLIC_ATTACK_SIGNATURES: list[dict] = [
+    {
+        # Firewall-drop active response blocks: the original attack IP is also
+        # available at data.parameters.alert.data.srcip in addition to data.srcip.
+        "decoder": "ar_log_json",
+        "groups": ["active_response", "ossec"],
+    },
+    {
+        # Direct Apache error-log web attacks.
+        "decoder": "apache-errorlog",
+        "groups": ["apache", "web", "invalid_request"],
+    },
+]
+
+# ---------------------------------------------------------------------------
+# Configurable group lists for the informational and internal_movement categories.
+#
+# INFORMATIONAL_GROUPS — rule.groups values that indicate non-actionable noise
+# (e.g. Windows service errors, dpkg packaging events).  Match ANY group present.
+#
+# INTERNAL_MOVEMENT_GROUPS — rule.groups values that indicate internal activity
+# with no public IP (auth events, file-integrity checks, group changes, PAM/sudo,
+# vulnerability scan hits, VirusTotal syscheck callbacks).  Match ANY group present.
+#
+# Evaluation order in _categorize_by_nature is STRICT:
+#   (1) public_attack  →  (2) internal_movement  →  (3) informational  →  "unknown"
+# This means public_attack always wins even if an alert also carries an
+# internal_movement or informational group.
+# ---------------------------------------------------------------------------
+INFORMATIONAL_GROUPS: list[str] = [
+    "system_error",
+    "windows_application",
+    "dpkg",
+]
+
+INTERNAL_MOVEMENT_GROUPS: list[str] = [
+    "authentication_success",
+    "authentication_failed",
+    "group_changed",
+    "win_group_changed",
+    "syscheck",
+    "syscheck_entry_added",
+    "syscheck_entry_modified",
+    "WEF",
+    "pam",
+    "sudo",
+    "vulnerability-detector",
+    "virustotal",
+]
 
 
 def _get(src: dict, path: str, default: Any = None) -> Any:
@@ -46,6 +110,65 @@ def _classify(src: dict) -> str:
         return "ssh"
     if decoder_name == "windows_eventchannel":
         return "windows_event"
+    return "unknown"
+
+
+def _categorize_by_nature(src: dict) -> str:
+    """Categorize the alert on a separate, independent axis by its nature.
+
+    Evaluation order is strict — the first matching rule wins:
+
+    1. ``"public_attack"`` — decoder+groups match PUBLIC_ATTACK_SIGNATURES AND
+       at least one source IP in the alert is a public (non-private) address.
+       Source IP lookup checks both ``data.srcip`` and
+       ``data.parameters.alert.data.srcip`` (the latter is the original attack
+       IP present in ar_log_json active-response blocks).
+
+    2. ``"internal_movement"`` — ANY of INTERNAL_MOVEMENT_GROUPS appears in
+       rule.groups.  Covers auth events, file-integrity checks, group changes,
+       PAM/sudo, vulnerability-detector, and VirusTotal callbacks.
+
+    3. ``"informational"`` — ANY of INFORMATIONAL_GROUPS appears in
+       rule.groups.  Covers non-actionable noise (service errors, dpkg events).
+
+    4. ``"unknown"`` — no rule matched.  Never raises.
+    """
+    decoder_name: str = _get(src, "decoder.name", "") or ""
+    rule_groups = _get(src, "rule.groups") or []
+    if not isinstance(rule_groups, list):
+        # A non-list rule.groups (e.g. a raw string) would turn `in` into
+        # substring matching; treat it as a single-element list instead.
+        rule_groups = [rule_groups]
+
+    # ---- (1) public_attack ------------------------------------------------
+    signature_matched = False
+    for sig in PUBLIC_ATTACK_SIGNATURES:
+        if decoder_name == sig["decoder"]:
+            if any(g in rule_groups for g in sig["groups"]):
+                signature_matched = True
+                break
+
+    if signature_matched:
+        # Collect candidate source IPs and test for public addresses.
+        candidate_ips: list[str] = []
+        primary = _get(src, "data.srcip")
+        if primary:
+            candidate_ips.append(str(primary))
+        nested = _get(src, "data.parameters.alert.data.srcip")
+        if nested and nested not in candidate_ips:
+            candidate_ips.append(str(nested))
+        if any(_is_external_ip(ip) for ip in candidate_ips):
+            return "public_attack"
+
+    # ---- (2) internal_movement --------------------------------------------
+    if any(g in rule_groups for g in INTERNAL_MOVEMENT_GROUPS):
+        return "internal_movement"
+
+    # ---- (3) informational ------------------------------------------------
+    if any(g in rule_groups for g in INFORMATIONAL_GROUPS):
+        return "informational"
+
+    # ---- (4) fallback -----------------------------------------------------
     return "unknown"
 
 
@@ -176,12 +299,18 @@ def parse_alert(alert: dict) -> dict:
         alert: Raw alert dict, optionally wrapped under ``_source``.
 
     Returns:
-        Structured dict with alert_type, rule metadata, IOCs, context, and
-        FP candidate flag. Never raises; returns partial result on bad input.
+        Structured dict with:
+        - ``alert_type``: technical classification (network, ssh, vulnerability, …)
+        - ``nature_category``: orthogonal axis — ``"public_attack"``,
+          ``"internal_movement"``, ``"informational"``, or ``"unknown"``
+          (see ``_categorize_by_nature`` for the strict evaluation order).
+        - rule metadata, IOCs, context, and FP candidate flag.
+        Never raises; returns partial result on bad input.
     """
     src: dict = alert.get("_source", alert) if isinstance(alert, dict) else {}
 
     alert_type = _classify(src)
+    nature_category = _categorize_by_nature(src)
 
     # Common rule fields
     rule_id: str | None = str(_get(src, "rule.id")) if _get(src, "rule.id") is not None else None
@@ -209,6 +338,7 @@ def parse_alert(alert: dict) -> dict:
 
     return {
         "alert_type": alert_type,
+        "nature_category": nature_category,
         "rule_id": rule_id,
         "rule_level": rule_level,
         "rule_description": rule_description,

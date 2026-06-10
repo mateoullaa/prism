@@ -25,8 +25,8 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Workflows created one by one as each tool is finished, not in advance.
 - [2026-06] Input confirmed: JSON arrives directly from Wazuh to Prism via webhook POST /analyze.
   Shuffle does NOT transform it; all alert fields (decoder.name, rule.groups, GeoLocation, data.srcip, etc.) are intact and trustworthy.
-- [2026-06] Categorization by nature (NEW AXIS): informational / internal movement / public attack.
-  Only "public attack" has firm criterion (external IP, public threat); informational and internal movement criteria PENDING refinement with data — do not invent.
+- [2026-06] Categorization by nature (NEW AXIS): public_attack / internal_movement / informational / unknown (default).
+  Criteria: module-level configurable constants. Evaluation order: public_attack → internal_movement → informational → unknown.
 - [2026-06] v1 focus narrows to PUBLIC indicators: attacks from external IPs targeting exposed assets.
 - [2026-06] rule.level discarded as filtering gate: corpus showed it does not separate attack from noise
   (external IPs fall in levels 3 and 5; levels 9–10 are internal noise e.g., Windows SPP FP). No "lightweight path without LLM" by level.
@@ -52,3 +52,5 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks
   `pip install` for 3.14 venv. Workaround: run tests directly with 3.14 interpreter:
   `"C:/Users/usuario/AppData/Local/Python/pythoncore-3.14-64/python.exe" -m pytest tests/...`
+- [2026-06] RFC 5737 TEST-NET ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) return
+  `is_private=True` in Python 3.11+. For public IP tests use 8.8.8.8 or 1.1.1.1 instead.

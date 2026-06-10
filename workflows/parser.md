@@ -14,6 +14,7 @@
   "agent_name": "string",
   "iocs": [{"value": "string", "type": "ip|domain|hash|cve", "external": bool}],
   "has_external_iocs": "bool",
+  "nature_category": "public_attack|internal_movement|informational|unknown",
   "context": "dict (raw timestamp, mitre, etc)",
   "is_known_fp_candidate": "bool"
 }
@@ -44,6 +45,27 @@
 | **system** | Usernames, file hashes, process paths |
 
 **Private IPs:** included as IOCs with external=False. Filtered via `ipaddress.ip_address(str).is_private`.
+
+---
+
+## Categorization by nature (v1 axis)
+
+**Purpose:** Distinguish alerts by origin/intent. Focus v1 on external threats.
+
+**Categories:** `public_attack` (external IP + known threat pattern) | `internal_movement` (host-to-host) | `informational` (system noise) | `unknown` (default).
+- Criteria: configurable module-level constants (INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES).
+
+**Public attack detection:** Match decoder + groups (from alert.rule) against module-level `PUBLIC_ATTACK_SIGNATURES` constant AND require `srcip` to be public (external, not loopback/link-local). Signature list is configurable (dict keys: decoder, groups list):
+```python
+PUBLIC_ATTACK_SIGNATURES = [
+  {"decoder": "ar_log_json", "groups": ["active_response", "ossec"]},  # firewall blocks
+  {"decoder": "apache-errorlog", "groups": ["apache", "web", "invalid_request"]},  # web attacks
+]
+```
+
+**Default:** alerts not matching any criterion → `"unknown"` (string, not null). Guard for rule.groups not-list (no exception).
+
+**Extend:** add dicts to `PUBLIC_ATTACK_SIGNATURES` as new patterns emerge; no code changes needed.
 
 ---
 

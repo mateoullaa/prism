@@ -53,8 +53,8 @@ The parser decides; if no external IOC, goes directly to the reasoner.
 
 Alerts classified on a separate axis by nature (independent of technical type):
 - **public attack:** external IP targeting exposed asset. Firm criterion: match decoder + groups against configurable list AND srcip is public.
-- **informational:** non-attack alert (e.g., log rotation, service start). Criterion PENDING — do not invent, refine with data.
-- **internal movement:** internal host-to-host or host-to-service traffic. Criterion PENDING — refine with data.
+- **informational:** non-attack alert (e.g., log rotation, service start). Criterion: rule.groups match INFORMATIONAL_GROUPS constant (system_error, windows_application, dpkg, etc.).
+- **internal movement:** internal host-to-host or host-to-service traffic. Criterion: rule.groups match INTERNAL_MOVEMENT_GROUPS constant (authentication*, group_changed, syscheck, vulnerability-detector, etc.).
 
 v1 focus is on detecting PUBLIC ATTACKS (public threat indicators).
 
