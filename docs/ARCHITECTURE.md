@@ -8,18 +8,20 @@ Source of truth for technical decisions. Load before writing or modifying `tools
 ```
 Wazuh alert (JSON)
   → main.py [POST /analyze]
-  → parser.py     classify type + extract IOCs
+  → parser.py     classify type + extract IOCs + categorize by nature
   → external IOCs?  yes → enricher.py (VirusTotal + AbuseIPDB, in parallel)
                     no  → skip enrichment
   → reasoner.py   LLM (Ollama) → structured verdict
-  → router.py     decide action (v1: ALWAYS return to Shuffle)
-  → logger.py     record metrics in CSV
-  → JSON response to Shuffle
+  → router.py     Prism decides: create case or not (audit-driven)
+                  Only alerts warranting a case → Shuffle
+  → logger.py     record metrics in CSV + audit trail (all discarded alerts with reason)
+  → JSON response to Shuffle or drop (with logging)
 ```
 
 ## Input format
-The alert may arrive wrapped (`{_source:{...}}`) or as the `_source` directly. The parser
-handles both: `alert.get('_source', alert)`.
+Wazuh alert arrives directly via webhook POST /analyze. Shuffle does NOT transform it.
+Alert may be wrapped (`{_source:{...}}`) or as the `_source` directly. Parser handles both: `alert.get('_source', alert)`.
+All fields (decoder.name, rule.groups, GeoLocation, data.srcip, etc.) are intact and trustworthy.
 
 ## Alert types and field paths
 
@@ -47,6 +49,25 @@ handles both: `alert.get('_source', alert)`.
 **Key fact:** ~85% of alerts have no external IOCs → conditional enrichment.
 The parser decides; if no external IOC, goes directly to the reasoner.
 
+## Categorization by nature
+
+Alerts classified on a separate axis by nature (independent of technical type):
+- **public attack:** external IP targeting exposed asset. Firm criterion: match decoder + groups against configurable list AND srcip is public.
+- **informational:** non-attack alert (e.g., log rotation, service start). Criterion PENDING — do not invent, refine with data.
+- **internal movement:** internal host-to-host or host-to-service traffic. Criterion PENDING — refine with data.
+
+v1 focus is on detecting PUBLIC ATTACKS (public threat indicators).
+
+## Public attack detection
+
+**Criterion:** match decoder + groups against configurable list AND srcip is public (not 192.168.*, 10.*, 172.16–31.*).
+
+**Configurable list** (never hardcoded; lives in config file or constant; extends over time):
+- `ar_log_json` + groups `active_response`, `ossec` → firewall block alerts
+- `apache-errorlog` + groups `apache`, `web`, `invalid_request` → web attacks
+
+List refined with corpus data over time.
+
 ## Reasoner output contract (strict JSON)
 
 ```json
@@ -60,14 +81,18 @@ The parser decides; if no external IOC, goes directly to the reasoner.
 }
 ```
 `risk_score`: integer 1–10. `mitre` may be `null`.
+**Conservative bias:** on doubt, reasoner returns `NEEDS_REVIEW` (not `FALSE_POSITIVE`); router routes to Shuffle (create case). Never discard on LLM uncertainty.
 
 ## Design decisions (with rationale)
 - **Direct APIs instead of Cortex:** lower latency, no SOAR dependency, control over format.
 - **Conditional enrichment:** 85% have no external IOCs; enriching everything wastes quota.
-- **v1 always returns to Shuffle (no auto FP filtering):** avoids missing a real alert due to LLM error;
-  automatic filtering will be validated with v1 metrics in v2.
+- **Prism decides create-or-not-case (not Shuffle):** audit-driven filtering; logger must record all discarded alerts with reason (mandatory audit trail).
+  Router is conservative: on doubt (NEEDS_REVIEW), create case; never discard on LLM uncertainty.
 - **Local LLM (Ollama):** sensitive data is not exposed to external APIs.
 - **Don't rebuild what Wazuh already provides:** GeoLocation is included in network/SSH alerts.
+- **rule.level discarded as filtering gate:** corpus evidence (external IPs fall in levels 3–5; levels 9–10 are internal noise) shows rule.level
+  does not separate attack from FP. No "lightweight path without LLM" by level.
+- **Shodan discarded (paid service).** OTX → v2 candidate for additional enrichment.
 
 ## Known technical constraints
 - VirusTotal free API: ~4 req/min. Handle rate limiting in the enricher.

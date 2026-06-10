@@ -23,6 +23,19 @@ Format: `[date] category — learning / decision`.
   (option A). Final deployment on the server (option B).
 - [2026-06] Server connection via SSH from Git Bash (not PuTTY). VPN FortiClient first.
 - [2026-06] Workflows created one by one as each tool is finished, not in advance.
+- [2026-06] Input confirmed: JSON arrives directly from Wazuh to Prism via webhook POST /analyze.
+  Shuffle does NOT transform it; all alert fields (decoder.name, rule.groups, GeoLocation, data.srcip, etc.) are intact and trustworthy.
+- [2026-06] Categorization by nature (NEW AXIS): informational / internal movement / public attack.
+  Only "public attack" has firm criterion (external IP, public threat); informational and internal movement criteria PENDING refinement with data — do not invent.
+- [2026-06] v1 focus narrows to PUBLIC indicators: attacks from external IPs targeting exposed assets.
+- [2026-06] rule.level discarded as filtering gate: corpus showed it does not separate attack from noise
+  (external IPs fall in levels 3 and 5; levels 9–10 are internal noise e.g., Windows SPP FP). No "lightweight path without LLM" by level.
+- [2026-06] PRISM decides create-or-not-case (not Shuffle). (a) Logger MUST record ALL alerts NOT sent to Shuffle with reason (audit trail, mandatory).
+  (b) Reasoner must be conservative: on doubt, NEEDS_REVIEW → create case, never discard.
+- [2026-06] Public attack detection: match decoder + groups against configurable list AND external srcip (public).
+  List is CONFIGURABLE (config file or constant, never hardcoded); extends over time. Initial list (3-day corpus):
+  `ar_log_json` + `active_response`/`ossec` (firewall blocks); `apache-errorlog` + `apache`/`web`/`invalid_request` (web attacks).
+- [2026-06] Shodan discarded (paid). OTX → v2 candidate.
 
 ## Technical learnings
 - [2026-06] Real corpus: 6,320 alerts / 3 days. 61% is a single FP: Rule 60602 (Windows SPP
