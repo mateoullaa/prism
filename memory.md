@@ -17,8 +17,7 @@ Format: `[date] category — learning / decision`.
 - [2026-06] v1 scope = webhook + intelligence analysis (replaces Cortex, detects FPs),
   returns to Shuffle. TheHive, runtime learning, and automatic FP filtering are v2.
 - [2026-06] v1 uses DEVELOPMENT memory, not runtime learning.
-- [2026-06] Local LLM with Ollama, no data exposure. Suggested initial model: qwen2.5:7b
-  (adjust based on server specs and JSON output quality).
+- [2026-06] Local LLM with Ollama, no data exposure. Actual model: qwen2.5:3b (CPU-only, ~500ms warm inference, ~8-9s cold start) → OLLAMA_TIMEOUT=30s default.
 - [2026-06] Dev of parser/enricher on Windows (no server). Reasoner with remote Ollama
   (option A). Final deployment on the server (option B).
 - [2026-06] Server connection via SSH from Git Bash (not PuTTY). VPN FortiClient first.
@@ -38,6 +37,8 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Shodan discarded (paid). OTX → v2 candidate.
 
 ## Technical learnings
+- [2026-06] Risk_score calibration: FALSE_POSITIVE alerts must return 1–2, critical TRUE_POSITIVE attacks 8–10. Rule enforced in prompt via _PROMPT_PREFIX conservative-bias section (not code-level guardrail). Calibration ensures verdict and risk_score align.
+- [2026-06] Live smoke test (windows_spp_error.json vs. real Ollama, qwen2.5:3b): verdict FALSE_POSITIVE, confidence HIGH, risk_score 1, latency 9873 ms (cold start ~9s, within 30s timeout). Confirms valid JSON contract, format rule honored, calibration rule applied.
 - [2026-06] Real corpus: 6,320 alerts / 3 days. 61% is a single FP: Rule 60602 (Windows SPP
   service, on an endpoint agent, every ~30s). Test case #1 for FP detection.
 - [2026-06] ~85% of alerts have no external IOCs → conditional enrichment.
@@ -47,6 +48,8 @@ Format: `[date] category — learning / decision`.
   and injected via clients= param, or VT rate limit won't hold across alerts.
 - [2026-06] Dependencies (requests, python-dotenv) installed system-wide Python 3.14 via
   `pip install --isolated` (venv pip.ini broken). Both in requirements.txt.
+- [2026-06] Conservative bias enforced in reasoner CODE: FP guardrail (FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade); all failure paths (timeout, connection, JSON invalid, contract violation) fall back to NEEDS_REVIEW/LOW. Never crash, never discard an alert.
+- [2026-06] Ollama `format: "json"` + `temperature=0` force strict JSON from qwen2.5:3b; output still validated defensively (extract `{...}`, normalize enums, coerce risk_score to int 1–10, null malformed mitre).
 
 ## Resolved errors
 - [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks
@@ -54,3 +57,6 @@ Format: `[date] category — learning / decision`.
   `"C:/Users/usuario/AppData/Local/Python/pythoncore-3.14-64/python.exe" -m pytest tests/...`
 - [2026-06] RFC 5737 TEST-NET ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) return
   `is_private=True` in Python 3.11+. For public IP tests use 8.8.8.8 or 1.1.1.1 instead.
+
+## Pending items (non-blocking)
+- [2026-06] OllamaClient: expose public `model` property (e.g., `client.model`) instead of `getattr(client, "_model")` if router needs it later.

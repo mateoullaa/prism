@@ -23,24 +23,25 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Parallel (ThreadPoolExecutor) + failure handling without breaking the pipeline
   - [x] Tests with mocked external calls (21 tests passing; 46/46 total with parser, no regressions)
   - [x] `workflows/enricher.md`
-- [ ] **3. `tools/reasoner.py`** — LLM via Ollama *(REQUIRES server running)*
-  - [ ] Ollama client (`/api/generate`)
-  - [ ] Analysis prompt (iterate with real fixtures)
-  - [ ] JSON output validation + fallback if not valid JSON
-  - [ ] `workflows/reasoner.md`
+- [x] **3. `tools/reasoner.py`** — LLM via Ollama *(REQUIRES server running)*
+  - [x] OllamaClient (injectable session) with `generate(prompt)` → `{status, response, latency_ms}`
+  - [x] Analysis prompt builder: alert_type + nature_category + rule + IOCs + enrichment summary (ok/cached only) + is_known_fp_candidate hint + JSON schema with literal enums
+  - [x] Defensive JSON validation (`_parse_llm_json`, `_validate_verdict`) + enum normalization + risk_score coerce/clamp 1–10
+  - [x] Code-level FP guardrail: FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade (conservative bias)
+  - [x] Fallback verdict (NEEDS_REVIEW/LOW, never crash) for all failure paths (timeout, connection, HTTP!=200, invalid JSON, contract violation)
+  - [x] `tests/test_reasoner.py` — 46 tests (mocked OllamaClient, no network); 115 total with parser+enricher
+  - [x] `workflows/reasoner.md`
 - [ ] **4. `tools/router.py`** — action decision (Prism decides create-or-not-case; only alerts that warrant a case are sent to Shuffle)
 - [ ] **5. `tools/logger.py`** — metrics in CSV + audit trail (timestamp, type, verdict, time; MUST log ALL discarded alerts with reason)
 - [ ] **6. `main.py`** — FastAPI, endpoint `POST /analyze`, orchestration
 - [ ] **7. Shuffle integration** — coordinate with the SOC team
 
 ## Blocked / waiting
-- Reasoner and anything using Ollama: server running + `OLLAMA_HOST=0.0.0.0:11434`
-  config agreed with the team.
 - Own SSH credentials for the server (request a personal account; do not use a shared user).
+- Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
 
 ## Next immediate step
-Build `tools/reasoner.py` (LLM via Ollama; can now use `nature_category` from parser output).
-*Blocked:* Ollama server running, `OLLAMA_HOST=0.0.0.0:11434` agreed with the team.
+Build `tools/router.py` (action decision: Prism uses parsed["verdict"] + reasoner_meta to decide create-or-not-case; only alerts warranting a case sent to Shuffle).
 
 ## v2 ideas (DO NOT implement now)
 - OTX (AlienVault) as additional enrichment source.
