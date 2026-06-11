@@ -38,7 +38,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 
 ## Blocked / waiting
 - Own SSH credentials for the server (request a personal account; do not use a shared user).
-- Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
+- Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED, no regression). Enrichment interpretation rules added to reasoner prompt and verified live (malicious-IP alert flips to TRUE_POSITIVE as intended). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
 
 ## Next immediate step
 Build `tools/router.py` (action decision: Prism uses parsed["verdict"] + reasoner_meta to decide create-or-not-case; only alerts warranting a case sent to Shuffle).

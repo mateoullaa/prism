@@ -37,6 +37,7 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Shodan discarded (paid). OTX → v2 candidate.
 
 ## Technical learnings
+- [2026-06] Enrichment interpretation rules added to reasoner prompt (not code): qwen2.5:3b was ignoring strong enrichment signals (e.g., AbuseIPDB score=100, VT malicious=16) and returning NEEDS_REVIEW. Thresholds now explicit in prompt (score≥80 + reports≥10 → TRUE_POSITIVE; VT malicious≥5 → TRUE_POSITIVE).
 - [2026-06] Risk_score calibration: FALSE_POSITIVE alerts must return 1–2, critical TRUE_POSITIVE attacks 8–10. Rule enforced in prompt via _PROMPT_PREFIX conservative-bias section (not code-level guardrail). Calibration ensures verdict and risk_score align.
 - [2026-06] Live smoke test (windows_spp_error.json vs. real Ollama, qwen2.5:3b): verdict FALSE_POSITIVE, confidence HIGH, risk_score 1, latency 9873 ms (cold start ~9s, within 30s timeout). Confirms valid JSON contract, format rule honored, calibration rule applied.
 - [2026-06] Real corpus: 6,320 alerts / 3 days. 61% is a single FP: Rule 60602 (Windows SPP

@@ -135,6 +135,12 @@ CONSERVATIVE BIAS RULES (mandatory):
 - When in doubt between TRUE_POSITIVE and NEEDS_REVIEW, choose NEEDS_REVIEW.
 - FALSE_POSITIVE alerts should have risk_score 1-2. TRUE_POSITIVE critical attacks should be 8-10.
 
+ENRICHMENT INTERPRETATION RULES (when enrichment data is available):
+- AbuseIPDB abuse_confidence_score >= 80 AND total_reports >= 10: strong evidence of malicious IP. Weight heavily toward TRUE_POSITIVE.
+- VirusTotal malicious >= 5: confirmed malicious by multiple engines. Weight heavily toward TRUE_POSITIVE.
+- Both AbuseIPDB score >= 80 AND VirusTotal malicious >= 5: return TRUE_POSITIVE with HIGH confidence.
+- AbuseIPDB score < 20 AND VirusTotal malicious == 0: weight toward FALSE_POSITIVE or NEEDS_REVIEW depending on other context.
+
 EXAMPLE OF VALID OUTPUT:
 {"verdict": "TRUE_POSITIVE", "confidence": "HIGH", "justification": "External IP performed repeated SSH login attempts with invalid usernames. Pattern matches brute-force credential stuffing. Source country has no known business relationship.", "mitre": {"id": "T1110", "name": "Brute Force"}, "next_action": "Block source IP at perimeter firewall and investigate targeted account.", "risk_score": 7}
 
