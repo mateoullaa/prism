@@ -39,7 +39,16 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Total test suite: 148 passing (zero regressions)
   - [x] Reviewer APPROVED (no blockers)
   - [x] workflows/router.md
-- [ ] **5. `tools/logger.py`** — metrics in CSV + audit trail (timestamp, type, verdict, time; MUST log ALL discarded alerts with reason)
+- [x] **5. `tools/logger.py`** — metrics in CSV + audit trail (timestamp, type, verdict, time; MUST log ALL discarded alerts with reason)
+  - [x] CSV schema: 16 fixed columns (timestamp, alert_type, nature_category, rule_id, rule_description, verdict, confidence, risk_score, mitre_id, action, send_to_shuffle, status, latency_ms, model, is_known_fp_candidate, reason)
+  - [x] Public API: `log_alert(parsed: dict, *, log_path: str | None = None, timestamp: str | None = None) -> dict` (never raises; I/O errors caught and logged)
+  - [x] Mandatory audit trail: ALL alerts logged including FALSE_POSITIVE discarded ones; reason field persists router audit trail
+  - [x] Defensive extraction: `isinstance` + `.get()` + `_safe()` None-coalescer; rule_id=None → "" (not "None"); booleans as "True"/"False" strings
+  - [x] Header written only on new/empty file (stat check inside lock, no TOCTOU under concurrency)
+  - [x] Thread safety: module-level threading.Lock for FastAPI concurrency
+  - [x] tests/test_logger.py: 23 tests (CSV schema, header behavior, defensive extraction, boolean serialization, timestamp/log_path injection, I/O error resilience, FP audit trail end-to-end, concurrency)
+  - [x] Reviewer APPROVED (no blockers)
+  - [x] workflows/logger.md
 - [ ] **6. `main.py`** — FastAPI, endpoint `POST /analyze`, orchestration
 - [ ] **7. Shuffle integration** — coordinate with the SOC team
 
@@ -48,7 +57,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 - Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED, no regression). Enrichment interpretation rules added to reasoner prompt and verified live (malicious-IP alert flips to TRUE_POSITIVE as intended). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
 
 ## Next immediate step
-Build `tools/logger.py` (item 5 — metrics CSV + audit trail; MUST log ALL alerts NOT sent to Shuffle, reading parsed["routing"]["reason"] for the audit entry).
+Build `main.py` (item 6 — FastAPI POST /analyze orchestration: parse → enrich → reason → route → log, return verdict to Shuffle).
 
 ## Technical debt / pending (post-sanitization)
 
@@ -63,7 +72,7 @@ Build `tools/logger.py` (item 5 — metrics CSV + audit trail; MUST log ALL aler
 **Pending (blocked — needs live server):**
 5. [ ] Risk_score + enrichment calibration validated live on only 1/6 fixtures (`memory.md` live-test note); validate the remaining 5 against real Ollama (VPN + server) post-router.
 
-Test suite: 148 passing (sanitization batch added +2 parser guard, +2 pipeline; router added +29).
+Test suite: 171 passing (parser 25 + enricher 21 + reasoner 46 + router 29 + logger 23 + pipeline 2).
 
 ## v2 ideas (DO NOT implement now)
 - OTX (AlienVault) as additional enrichment source.

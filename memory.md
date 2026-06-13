@@ -53,6 +53,7 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Conservative bias enforced in reasoner CODE: FP guardrail (FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade); all failure paths (timeout, connection, JSON invalid, contract violation) fall back to NEEDS_REVIEW/LOW. Never crash, never discard an alert.
 - [2026-06] Ollama `format: "json"` + `temperature=0` force strict JSON from qwen2.5:3b; output still validated defensively (extract `{...}`, normalize enums, coerce risk_score to int 1–10, null malformed mitre).
 - [2026-06] WAT docs drift silently from actual tool code: pre-router audit found `workflows/*.md` documented non-existent nested verdicts (`verdict.classification`, `mitre_tags`) that never existed in actual `tools/reasoner.py` (which returns flat dict). Before building any downstream consumer (router, logger, main), verify each tool's output contract against the actual tool code, not just the `.md` (reviewer audit caught this before router was built on a wrong contract).
+- [2026-06] Mandatory audit-trail design: logger persists EVERY alert including discarded FALSE_POSITIVEs with router reason (verdict, confidence, fallback/downgrade context). No silent discards — SOC audits every decision and discovers patterns (e.g., all FPs from Rule 60602). Transparency, accountability, and learning enabler.
 
 ## Resolved errors
 - [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks
