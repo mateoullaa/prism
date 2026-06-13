@@ -9,7 +9,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 ## MVP v1 — Build sequence (strict order, do not skip)
 
 - [x] Harness: structure, `.claude/` (agents, commands, hooks), `init.sh`, docs, fixtures
-- [x] **1. `tools/parser.py`** — classify type + extract IOCs *(no server, no Ollama)*
+- [x] **1. `tools/parser.py`** — classify type + extract IOCs _(no server, no Ollama)_
   - [x] Handle wrapped `_source` format and direct format
   - [x] Classifier for the 5 alert types
   - [x] IOC extraction per type (with private IP filter)
@@ -17,13 +17,13 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] `workflows/parser.md`
   - [x] Categorization axis by nature: `nature_category` field (public_attack / internal_movement / informational / unknown); INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES constants; evaluation order: public_attack → internal_movement → informational → unknown; 10 new tests (69/69 total)
   - [x] Public attack detection: decoder + groups + external srcip. Initial list: `ar_log_json` + `active_response`/`ossec` (firewall); `apache-errorlog` + `apache`/`web`/`invalid_request` (web attacks)
-- [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB *(public APIs, no server)*
+- [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB _(public APIs, no server)_
   - [x] VirusTotal client with rate limiting (~4 req/min free tier)
   - [x] AbuseIPDB client
   - [x] Parallel (ThreadPoolExecutor) + failure handling without breaking the pipeline
   - [x] Tests with mocked external calls (21 tests passing; 46/46 total with parser, no regressions)
   - [x] `workflows/enricher.md`
-- [x] **3. `tools/reasoner.py`** — LLM via Ollama *(REQUIRES server running)*
+- [x] **3. `tools/reasoner.py`** — LLM via Ollama _(REQUIRES server running)_
   - [x] OllamaClient (injectable session) with `generate(prompt)` → `{status, response, latency_ms}`
   - [x] Analysis prompt builder: alert_type + nature_category + rule + IOCs + enrichment summary (ok/cached only) + is_known_fp_candidate hint + JSON schema with literal enums
   - [x] Defensive JSON validation (`_parse_llm_json`, `_validate_verdict`) + enum normalization + risk_score coerce/clamp 1–10
@@ -49,32 +49,43 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] tests/test_logger.py: 23 tests (CSV schema, header behavior, defensive extraction, boolean serialization, timestamp/log_path injection, I/O error resilience, FP audit trail end-to-end, concurrency)
   - [x] Reviewer APPROVED (no blockers)
   - [x] workflows/logger.md
-- [ ] **6. `main.py`** — FastAPI, endpoint `POST /analyze`, orchestration
+- [x] **6. `main.py`** — FastAPI, endpoint `POST /analyze`, orchestration
+  - [x] `POST /analyze` + `GET /health` endpoints
+  - [x] Full pipeline orchestration: parse → enrich → reason → route → log, returns complete parsed dict
+  - [x] Module-level singletons (enricher clients, Ollama) via FastAPI dependency injection (get_pipeline)
+  - [x] Sync endpoint in threadpool (blocks don't stall event loop); thread-safe client/session reuse across requests
+  - [x] Never-500 defensive escalation: catch all exceptions, return HTTP 200 + create_case escalation body; best-effort CSV audit row even on catastrophic failure (honors "every alert logged" invariant)
+  - [x] 9 tests (mocked external calls via dependency injection; full pipeline, escalation path, contract, audit behavior)
+  - [x] Reviewer APPROVED (no blockers)
+  - [x] `workflows/main.md`
+  - [x] `requirements.txt` updated: `httpx>=0.27` (TestClient/Starlette clean-clone dependency)
+  - [x] 180 total tests passing (zero regressions)
 - [ ] **7. Shuffle integration** — coordinate with the SOC team
 
 ## Blocked / waiting
+
 - Own SSH credentials for the server (request a personal account; do not use a shared user).
 - Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED, no regression). Enrichment interpretation rules added to reasoner prompt and verified live (malicious-IP alert flips to TRUE_POSITIVE as intended). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
 
 ## Next immediate step
-Build `main.py` (item 6 — FastAPI POST /analyze orchestration: parse → enrich → reason → route → log, return verdict to Shuffle).
+
+Build item 7 (Shuffle integration — coordinate with SOC team on outbound HTTP POST contract and endpoint details).
 
 ## Technical debt / pending (post-sanitization)
 
-**DEUDA de código — RESOLVED:**
+**RESOLVED:**
+
 1. [x] Warning #1: OllamaClient now exposes a public `model` property; `reason()` reads `client.model` (no more `getattr`).
 2. [x] Warning #2: `build_prompt` failure path now records real `latency_ms` (computed from `t_start`), not `0`.
 
-**MEJORAS — RESOLVED:**
-3. [x] End-to-end pipeline test added (`tests/test_pipeline.py`): chained `parse_alert → enrich → reason`, external-IP and no-IOC paths, all mocked.
-4. [x] `parser.py` non-list `rule.groups` guard now covered (`tests/test_parser.py` §13: scalar treated as single element; no substring false-match).
+**RESOLVED:** 3. [x] End-to-end pipeline test added (`tests/test_pipeline.py`): chained `parse_alert → enrich → reason`, external-IP and no-IOC paths, all mocked. 4. [x] `parser.py` non-list `rule.groups` guard now covered (`tests/test_parser.py` §13: scalar treated as single element; no substring false-match).
 
-**Pending (blocked — needs live server):**
-5. [ ] Risk_score + enrichment calibration validated live on only 1/6 fixtures (`memory.md` live-test note); validate the remaining 5 against real Ollama (VPN + server) post-router.
+**Pending (blocked — needs live server):** 5. [ ] Risk_score + enrichment calibration validated live on only 1/6 fixtures (`memory.md` live-test note); validate the remaining 5 against real Ollama (VPN + server) post-router.
 
-Test suite: 171 passing (parser 25 + enricher 21 + reasoner 46 + router 29 + logger 23 + pipeline 2).
+Test suite: 180 passing (parser 25 + enricher 21 + reasoner 46 + router 29 + logger 23 + pipeline 2 + main 9).
 
 ## v2 ideas (DO NOT implement now)
+
 - OTX (AlienVault) as additional enrichment source.
 - Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
 - Direct case creation in TheHive.
