@@ -51,6 +51,11 @@ class OllamaClient:
         self._model = model
         self._timeout = timeout
 
+    @property
+    def model(self) -> str:
+        """Name of the Ollama model this client targets."""
+        return self._model
+
     def generate(self, prompt: str) -> dict:
         """Send a prompt to Ollama and return the raw response text.
 
@@ -482,7 +487,7 @@ def reason(parsed: dict, *, client: OllamaClient | None = None) -> dict:
     if client is None:
         client = _build_default_client()
 
-    model: str = getattr(client, "_model", "unknown")
+    model: str = client.model
     downgrade_note: str | None = None
 
     # Build prompt (can fail on completely unexpected input shapes)
@@ -497,7 +502,7 @@ def reason(parsed: dict, *, client: OllamaClient | None = None) -> dict:
             "status": "fallback",
             "fallback_reason": reason_str,
             "model": model,
-            "latency_ms": 0,
+            "latency_ms": int((time.monotonic() - t_start) * 1000),
         }
         return parsed
 

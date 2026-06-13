@@ -31,7 +31,14 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Fallback verdict (NEEDS_REVIEW/LOW, never crash) for all failure paths (timeout, connection, HTTP!=200, invalid JSON, contract violation)
   - [x] `tests/test_reasoner.py` — 46 tests (mocked OllamaClient, no network); 115 total with parser+enricher
   - [x] `workflows/reasoner.md`
-- [ ] **4. `tools/router.py`** — action decision (Prism decides create-or-not-case; only alerts that warrant a case are sent to Shuffle)
+- [x] **4. `tools/router.py`** — action decision (Prism decides create-or-not-case; only alerts that warrant a case are sent to Shuffle)
+  - [x] route() contract: reads parsed["verdict"] + parsed["reasoner_meta"], writes parsed["routing"], in-place mutation
+  - [x] Decision rules: FALSE_POSITIVE → discard; TRUE_POSITIVE|NEEDS_REVIEW → create_case; missing/malformed → defensive escalation (create_case)
+  - [x] Audit trail: reason field includes verdict, confidence, fallback context (if any), downgrade_note (if present)
+  - [x] tests/test_router.py: 29 tests (TRUE_POSITIVE/FALSE_POSITIVE/NEEDS_REVIEW paths, fallback/downgrade handling, defensive edge cases, in-place mutation contract, end-to-end fixtures)
+  - [x] Total test suite: 148 passing (zero regressions)
+  - [x] Reviewer APPROVED (no blockers)
+  - [x] workflows/router.md
 - [ ] **5. `tools/logger.py`** — metrics in CSV + audit trail (timestamp, type, verdict, time; MUST log ALL discarded alerts with reason)
 - [ ] **6. `main.py`** — FastAPI, endpoint `POST /analyze`, orchestration
 - [ ] **7. Shuffle integration** — coordinate with the SOC team
@@ -41,7 +48,22 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
 - Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED, no regression). Enrichment interpretation rules added to reasoner prompt and verified live (malicious-IP alert flips to TRUE_POSITIVE as intended). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
 
 ## Next immediate step
-Build `tools/router.py` (action decision: Prism uses parsed["verdict"] + reasoner_meta to decide create-or-not-case; only alerts warranting a case sent to Shuffle).
+Build `tools/logger.py` (item 5 — metrics CSV + audit trail; MUST log ALL alerts NOT sent to Shuffle, reading parsed["routing"]["reason"] for the audit entry).
+
+## Technical debt / pending (post-sanitization)
+
+**DEUDA de código — RESOLVED:**
+1. [x] Warning #1: OllamaClient now exposes a public `model` property; `reason()` reads `client.model` (no more `getattr`).
+2. [x] Warning #2: `build_prompt` failure path now records real `latency_ms` (computed from `t_start`), not `0`.
+
+**MEJORAS — RESOLVED:**
+3. [x] End-to-end pipeline test added (`tests/test_pipeline.py`): chained `parse_alert → enrich → reason`, external-IP and no-IOC paths, all mocked.
+4. [x] `parser.py` non-list `rule.groups` guard now covered (`tests/test_parser.py` §13: scalar treated as single element; no substring false-match).
+
+**Pending (blocked — needs live server):**
+5. [ ] Risk_score + enrichment calibration validated live on only 1/6 fixtures (`memory.md` live-test note); validate the remaining 5 against real Ollama (VPN + server) post-router.
+
+Test suite: 148 passing (sanitization batch added +2 parser guard, +2 pipeline; router added +29).
 
 ## v2 ideas (DO NOT implement now)
 - OTX (AlienVault) as additional enrichment source.

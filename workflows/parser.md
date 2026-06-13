@@ -7,15 +7,15 @@
 **Output contract:**
 ```json
 {
-  "alert_type": "network|auth|malware|vulnerability|system",
+  "alert_type": "network|ssh|windows_event|vulnerability|virustotal|unknown",
   "rule_id": "string",
   "rule_level": "int",
   "rule_description": "string",
   "agent_name": "string",
-  "iocs": [{"value": "string", "type": "ip|domain|hash|cve", "external": bool}],
+  "iocs": [{"value": "string", "type": "ip|user|hash|cve", "external": bool}],
   "has_external_iocs": "bool",
   "nature_category": "public_attack|internal_movement|informational|unknown",
-  "context": "dict (raw timestamp, mitre, etc)",
+  "context": "dict (type-specific metadata)",
   "is_known_fp_candidate": "bool"
 }
 ```
@@ -24,13 +24,13 @@
 
 ## Classification order (strict precedence)
 
-1. **malware** → decoder.name="json" AND location contains "virustotal"
-2. **vulnerability** → rule_id∈{18000..18999}
-3. **auth** → rule_id∈{5000..5999}
-4. **network** → rule_id∈{4000..4999}
-5. **system** → all others
-
-(Uses `location` before `decoder.name` to disambiguate: virustotal and CVE both have decoder.name=="json".)
+Detection by decoder/location (order matters; first match wins):
+1. **vulnerability** → `location == "vulnerability-detector"`
+2. **virustotal** → `location == "virustotal"` (hash already enriched by Wazuh)
+3. **network** → `decoder.name == "ar_log_json"` (firewall blocks, active_response)
+4. **ssh** → `decoder.name == "sshd"` (brute-force, login attempts)
+5. **windows_event** → `decoder.name == "windows_eventchannel"` (Windows events, rule 60602 dominant FP)
+6. **unknown** → no match (fallback; no external IOCs)
 
 ---
 
@@ -38,13 +38,15 @@
 
 | Type | IOCs extracted |
 |------|---|
-| **network** | Source/dest IPs (private included, external=False), domains, ports, hashes |
-| **auth** | IPs from failed login contexts (private=external:False), usernames |
-| **malware** | SHA256/MD5 hashes (external=False if v1, i.e., already from VirusTotal JSON), domains |
-| **vulnerability** | CVE IDs (external=False, v1 enrichment is conditional), affected IPs |
-| **system** | Usernames, file hashes, process paths |
+| **network** | Attack srcip + blocked srcip (marked external if public), nested srcip from `data.parameters.alert.data.srcip` |
+| **ssh** | Source srcip (marked external if public), source username |
+| **windows_event** | None (no external IOCs; event metadata only) |
+| **vulnerability** | CVE ID (external=False; v1 skips enrichment) |
+| **virustotal** | MD5, SHA1, SHA256 hashes (external=False; already enriched by Wazuh) |
+| **unknown** | None |
 
-**Private IPs:** included as IOCs with external=False. Filtered via `ipaddress.ip_address(str).is_private`.
+**Private IPs:** included as IOCs with external=False (e.g., 192.168.x, 10.x, 172.16-31.x). Public IPs marked external=True and passed to enricher.
+Determined via `ipaddress.ip_address(str).is_private`.
 
 ---
 

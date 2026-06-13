@@ -5,24 +5,27 @@
 **Input:** Parser + enricher output dict with alert_type, IOCs, enrichment data, is_known_fp_candidate flag.
 
 **Output contract:**
+Adds two fields to `parsed` in-place:
 ```json
-{
-  "verdict": {
-    "classification": "TRUE_POSITIVE|FALSE_POSITIVE|NEEDS_REVIEW",
-    "confidence": "HIGH|MEDIUM|LOW",
-    "risk_score": 1-10,
-    "mitre_tags": ["T1234", ...] or null,
-    "reasoning": "string"
-  },
-  "reasoner_meta": {
-    "status": "ok|timeout|error",
-    "fallback_reason": "string or null",
-    "model": "string",
-    "latency_ms": int,
-    "downgrade_note": "string or null"
-  }
+"verdict": {
+  "verdict": "TRUE_POSITIVE | FALSE_POSITIVE | NEEDS_REVIEW",
+  "confidence": "HIGH | MEDIUM | LOW",
+  "justification": "max 3 sentences",
+  "mitre": {"id": "TXXXX", "name": "technique"} or null,
+  "next_action": "concrete action",
+  "risk_score": 1-10
+},
+"reasoner_meta": {
+  "status": "ok | fallback",
+  "fallback_reason": "string or null",
+  "model": "string",
+  "latency_ms": int,
+  "downgrade_note": "string (only present on FP guardrail downgrade)"
 }
 ```
+Success path: `status:"ok"`, `fallback_reason:null`, `downgrade_note` absent.
+Failure paths (timeout, connection, HTTP!=200, JSON invalid, contract violation): `status:"fallback"` + `fallback_reason` populated.
+FP guardrail downgrade (FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW): `downgrade_note` present.
 
 ---
 

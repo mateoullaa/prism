@@ -29,12 +29,13 @@ Format: `[date] category — learning / decision`.
 - [2026-06] v1 focus narrows to PUBLIC indicators: attacks from external IPs targeting exposed assets.
 - [2026-06] rule.level discarded as filtering gate: corpus showed it does not separate attack from noise
   (external IPs fall in levels 3 and 5; levels 9–10 are internal noise e.g., Windows SPP FP). No "lightweight path without LLM" by level.
-- [2026-06] PRISM decides create-or-not-case (not Shuffle). (a) Logger MUST record ALL alerts NOT sent to Shuffle with reason (audit trail, mandatory).
-  (b) Reasoner must be conservative: on doubt, NEEDS_REVIEW → create case, never discard.
+- [2026-06] PRISM decides create-or-not-case (not Shuffle). Router routes by verdict: FALSE_POSITIVE → discard (send_to_shuffle=False); TRUE_POSITIVE/NEEDS_REVIEW → create_case (send_to_shuffle=True); missing/unknown verdict → defensive escalation (create_case, never discard on doubt). Mandatory audit trail: parsed["routing"]["reason"] persisted by logger for every alert (including discarded).
 - [2026-06] Public attack detection: match decoder + groups against configurable list AND external srcip (public).
   List is CONFIGURABLE (config file or constant, never hardcoded); extends over time. Initial list (3-day corpus):
   `ar_log_json` + `active_response`/`ossec` (firewall blocks); `apache-errorlog` + `apache`/`web`/`invalid_request` (web attacks).
 - [2026-06] Shodan discarded (paid). OTX → v2 candidate.
+- [2026-06] Project language is ENGLISH: all code, comments, docstrings, `.md` docs, and commit
+  messages are written in English even when the user's prompts/discussion are in Spanish.
 
 ## Technical learnings
 - [2026-06] Enrichment interpretation rules added to reasoner prompt (not code): qwen2.5:3b was ignoring strong enrichment signals (e.g., AbuseIPDB score=100, VT malicious=16) and returning NEEDS_REVIEW. Thresholds now explicit in prompt (score≥80 + reports≥10 → TRUE_POSITIVE; VT malicious≥5 → TRUE_POSITIVE).
@@ -51,6 +52,7 @@ Format: `[date] category — learning / decision`.
   `pip install --isolated` (venv pip.ini broken). Both in requirements.txt.
 - [2026-06] Conservative bias enforced in reasoner CODE: FP guardrail (FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade); all failure paths (timeout, connection, JSON invalid, contract violation) fall back to NEEDS_REVIEW/LOW. Never crash, never discard an alert.
 - [2026-06] Ollama `format: "json"` + `temperature=0` force strict JSON from qwen2.5:3b; output still validated defensively (extract `{...}`, normalize enums, coerce risk_score to int 1–10, null malformed mitre).
+- [2026-06] WAT docs drift silently from actual tool code: pre-router audit found `workflows/*.md` documented non-existent nested verdicts (`verdict.classification`, `mitre_tags`) that never existed in actual `tools/reasoner.py` (which returns flat dict). Before building any downstream consumer (router, logger, main), verify each tool's output contract against the actual tool code, not just the `.md` (reviewer audit caught this before router was built on a wrong contract).
 
 ## Resolved errors
 - [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks
@@ -60,4 +62,5 @@ Format: `[date] category — learning / decision`.
   `is_private=True` in Python 3.11+. For public IP tests use 8.8.8.8 or 1.1.1.1 instead.
 
 ## Pending items (non-blocking)
-- [2026-06] OllamaClient: expose public `model` property (e.g., `client.model`) instead of `getattr(client, "_model")` if router needs it later.
+- [2026-06] RESOLVED: OllamaClient now exposes a public `model` property; `reason()` reads
+  `client.model` (no more `getattr(client, "_model")`).

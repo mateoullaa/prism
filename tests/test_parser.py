@@ -559,6 +559,47 @@ def test_internal_movement_groups_constant_contains_expected_entries():
         assert group in INTERNAL_MOVEMENT_GROUPS, f"Missing expected group: {group}"
 
 
+# ---------------------------------------------------------------------------
+# 13. nature_category — defensive guard for a non-list rule.groups
+# ---------------------------------------------------------------------------
+
+def test_nature_category_string_rule_groups_treated_as_single_element():
+    """A scalar (string) rule.groups must be wrapped into a single-element list,
+    so an exact group name still matches its category instead of raising.
+    """
+    alert = {
+        "decoder": {"name": "windows_eventchannel"},
+        "rule": {
+            "id": "18602",
+            "level": 3,
+            "description": "Windows service error with a scalar groups field.",
+            "groups": "system_error",          # scalar, not a list
+        },
+        "location": "EventChannel",
+    }
+    assert parse_alert(alert)["nature_category"] == "informational"
+
+
+def test_nature_category_string_rule_groups_no_substring_match():
+    """The guard wraps the scalar into a list, so membership is exact: a string
+    that merely *contains* a known group as a substring must NOT match it.
+    Without the guard, `"system_error" in "system_error_extra"` would be a
+    false positive; with it, the lookup is list membership and resolves to
+    'unknown'.
+    """
+    alert = {
+        "decoder": {"name": "custom-decoder"},
+        "rule": {
+            "id": "7778",
+            "level": 4,
+            "description": "Scalar groups that only contains a known group as a substring.",
+            "groups": "system_error_extra",    # scalar superstring of a known group
+        },
+        "location": "/var/log/custom.log",
+    }
+    assert parse_alert(alert)["nature_category"] == "unknown"
+
+
 def test_public_attack_signatures_constant_structure():
     """Each PUBLIC_ATTACK_SIGNATURES entry has 'decoder' (str) and 'groups' (list)."""
     for sig in PUBLIC_ATTACK_SIGNATURES:

@@ -70,6 +70,7 @@ List refined with corpus data over time.
 
 ## Reasoner output contract (strict JSON)
 
+**Verdict** (parsed["verdict"]):
 ```json
 {
   "verdict": "TRUE_POSITIVE | FALSE_POSITIVE | NEEDS_REVIEW",
@@ -77,10 +78,25 @@ List refined with corpus data over time.
   "justification": "max 3 sentences",
   "mitre": { "id": "TXXXX", "name": "technique" },
   "next_action": "concrete action",
-  "risk_score": 1
+  "risk_score": 1-10
 }
 ```
 `risk_score`: integer 1–10. `mitre` may be `null`.
+
+**Metadata** (parsed["reasoner_meta"]):
+```json
+{
+  "status": "ok | fallback",
+  "fallback_reason": "string | null",
+  "model": "string",
+  "latency_ms": 0,
+  "downgrade_note": "string (optional; present only on FP guardrail downgrade)"
+}
+```
+- `status="ok"` on successful LLM analysis; `fallback_reason=null`.
+- `status="fallback"` on any error (timeout, connection, HTTP!=200, JSON invalid, contract violation, build_prompt error); `fallback_reason` populated; verdict is conservative NEEDS_REVIEW.
+- `downgrade_note` present only when FP guardrail downgrades FALSE_POSITIVE (confidence != HIGH) → NEEDS_REVIEW.
+
 **Conservative bias:** on doubt, reasoner returns `NEEDS_REVIEW` (not `FALSE_POSITIVE`); router routes to Shuffle (create case). Never discard on LLM uncertainty.
 
 ## Design decisions (with rationale)

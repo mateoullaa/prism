@@ -24,8 +24,8 @@ If no external IOCs exist → `enrichment == {}` with **zero** external API call
 ## Design highlights
 
 **Rate limiting (fail-fast token bucket):**
-- VirusTotal: 4 req/min (1 token per 15s, burst capacity 4).
-- AbuseIPDB: 60 req/min (1 token per 1s, burst capacity 60).
+- VirusTotal: 4 req/min (capacity 4 tokens, refilled every 60s; ~1 token every 15s average).
+- AbuseIPDB: 60 req/min (capacity 60 tokens, refilled every 60s; ~1 token every 1s average).
 - `try_acquire()` returns `False` immediately if bucket empty; never blocks.
 - Status "rate_limited" assigned if token unavailable.
 
@@ -51,7 +51,7 @@ If no external IOCs exist → `enrichment == {}` with **zero** external API call
 **VirusTotal (GET v3/ip_addresses/{ip}):**
 - Header: `x-apikey: <key>`.
 - Response → extract `data.attributes.last_analysis_stats`: malicious, suspicious, undetected.
-- Reputation = (malicious * 2 + suspicious) / total_analyses (or 0 if no analyses).
+- Response → extract `data.attributes.reputation`: direct integer reputation score (not calculated locally).
 
 **AbuseIPDB (GET v2/check):**
 - Params: `ipAddress={ip}`, `maxAgeInDays=90`.
