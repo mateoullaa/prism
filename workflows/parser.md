@@ -55,26 +55,29 @@ Determined via `ipaddress.ip_address(str).is_private`.
 **Purpose:** Distinguish alerts by origin/intent. Focus v1 on external threats.
 
 **Categories:** `public_attack` (external IP + known threat pattern) | `internal_movement` (host-to-host) | `informational` (system noise) | `unknown` (default).
-- Criteria: configurable module-level constants (INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES).
+- Criteria: lists loaded from `config/known_patterns.json` at parser import (INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES, KNOWN_FP_RULE_IDS). Code `_DEFAULTS` acts as fallback if file missing or key malformed (graceful degradation, no exception, warns to logs).
 
-**Public attack detection:** Match decoder + groups (from alert.rule) against module-level `PUBLIC_ATTACK_SIGNATURES` constant AND require `srcip` to be public (external, not loopback/link-local). Signature list is configurable (dict keys: decoder, groups list):
-```python
-PUBLIC_ATTACK_SIGNATURES = [
-  {"decoder": "ar_log_json", "groups": ["active_response", "ossec"]},  # firewall blocks
-  {"decoder": "apache-errorlog", "groups": ["apache", "web", "invalid_request"]},  # web attacks
-]
+**Public attack detection:** Match decoder + groups (from alert.rule) against `PUBLIC_ATTACK_SIGNATURES` (from config) AND require `srcip` to be public (external, not loopback/link-local). Config structure:
+```json
+{
+  "public_attack_signatures": [
+    {"decoder": "ar_log_json", "groups": ["active_response", "ossec"]},
+    {"decoder": "apache-errorlog", "groups": ["apache", "web", "invalid_request"]}
+  ]
+}
 ```
 
 **Default:** alerts not matching any criterion → `"unknown"` (string, not null). Guard for rule.groups not-list (no exception).
 
-**Extend:** add dicts to `PUBLIC_ATTACK_SIGNATURES` as new patterns emerge; no code changes needed.
+**Extend:** edit `config/known_patterns.json` as new patterns emerge; no code changes needed. Parser reloads at startup.
 
 ---
 
 ## Known FP detection
 
-**Rule 60602** (Windows SPP service) → `is_known_fp_candidate = True`.
-(61% of real corpus, test case #1.)
+**Rules 60602 & 61061** (Windows SPP service + aggregation) → `is_known_fp_candidate = True`.
+Rule 60602: individual Security-SPP service errors (every ~30s); Rule 61061: aggregation grouping them.
+Both from production corpus (61% of alerts), test case #1. Listed in `config/known_patterns.json` under `known_fp_rule_ids`.
 
 ---
 

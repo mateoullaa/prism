@@ -20,7 +20,9 @@ from tools.parser import (  # noqa: E402
     INFORMATIONAL_GROUPS,
     INTERNAL_MOVEMENT_GROUPS,
     PUBLIC_ATTACK_SIGNATURES,
+    _DEFAULTS,
     _is_external_ip,
+    _load_patterns,
     parse_alert,
 )
 
@@ -66,6 +68,11 @@ def win_spp() -> dict:
     return load_fixture("windows_spp_error.json")
 
 
+@pytest.fixture
+def win_spp_grouped() -> dict:
+    return load_fixture("windows_spp_grouped.json")
+
+
 # ---------------------------------------------------------------------------
 # 1. Classification — each fixture maps to the expected type
 # ---------------------------------------------------------------------------
@@ -92,6 +99,10 @@ def test_classify_windows_logon(win_logon):
 
 def test_classify_windows_spp(win_spp):
     assert parse_alert(win_spp)["alert_type"] == "windows_event"
+
+
+def test_classify_windows_spp_grouped(win_spp_grouped):
+    assert parse_alert(win_spp_grouped)["alert_type"] == "windows_event"
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +183,14 @@ def test_private_ip_ssh():
 
 def test_windows_spp_fp_candidate(win_spp):
     assert parse_alert(win_spp)["is_known_fp_candidate"] is True
+
+
+def test_windows_spp_grouped_fp_candidate(win_spp_grouped):
+    """Rule 61061 (aggregation of 60602 events) is a known-FP candidate too.
+
+    Regression guard: this was missed when only rule 60602 was recognized.
+    """
+    assert parse_alert(win_spp_grouped)["is_known_fp_candidate"] is True
 
 
 def test_windows_logon_not_fp_candidate(win_logon):
@@ -415,6 +434,13 @@ def test_nature_category_windows_spp_is_informational(win_spp):
     assert parse_alert(win_spp)["nature_category"] == "informational"
 
 
+def test_nature_category_windows_spp_grouped_is_informational(win_spp_grouped):
+    """windows_spp_grouped (rule 61061) has rule.groups=['windows','windows_application'].
+    'windows_application' is in INFORMATIONAL_GROUPS → informational.
+    """
+    assert parse_alert(win_spp_grouped)["nature_category"] == "informational"
+
+
 def test_nature_category_vulnerability_is_internal_movement(vuln):
     """vulnerability has rule.groups=['vulnerability-detector'].
     'vulnerability-detector' is in INTERNAL_MOVEMENT_GROUPS → internal_movement.
@@ -606,3 +632,68 @@ def test_public_attack_signatures_constant_structure():
         assert isinstance(sig.get("decoder"), str)
         assert isinstance(sig.get("groups"), list)
         assert len(sig["groups"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# 14. Pattern loader — config/known_patterns.json with safe fallback
+# ---------------------------------------------------------------------------
+
+def test_known_patterns_file_loads():
+    """The shipped config file exists, parses, and yields non-empty patterns.
+
+    Content is checked loosely (non-empty) so hand-edits to the file never
+    require a test change.
+    """
+    config_file = REPO_ROOT / "config" / "known_patterns.json"
+    assert config_file.is_file(), "config/known_patterns.json is missing"
+
+    loaded = json.loads(config_file.read_text(encoding="utf-8"))
+    for key in _DEFAULTS:
+        assert key in loaded, f"config is missing key: {key}"
+
+    patterns = _load_patterns(config_file)
+    assert patterns["known_fp_rule_ids"]
+    assert patterns["informational_groups"]
+    assert patterns["internal_movement_groups"]
+    assert patterns["public_attack_signatures"]
+
+
+def test_load_patterns_falls_back_on_missing_file(tmp_path):
+    """A nonexistent config path yields the built-in defaults, not a crash."""
+    missing = tmp_path / "does_not_exist.json"
+    patterns = _load_patterns(missing)
+    assert patterns == _DEFAULTS
+
+
+def test_load_patterns_falls_back_on_malformed_json(tmp_path):
+    """Invalid JSON falls back to defaults for every key (never raises)."""
+    bad = tmp_path / "bad.json"
+    bad.write_text("{ this is not valid json", encoding="utf-8")
+    patterns = _load_patterns(bad)
+    assert patterns == _DEFAULTS
+
+
+def test_load_patterns_falls_back_per_malformed_key(tmp_path):
+    """A structurally-wrong key falls back to its default while valid keys load.
+
+    'informational_groups' is given a non-list value and 'public_attack_signatures'
+    a malformed entry; both must default. The valid 'known_fp_rule_ids' override
+    must be honored.
+    """
+    partial = tmp_path / "partial.json"
+    partial.write_text(
+        json.dumps(
+            {
+                "known_fp_rule_ids": ["12345"],          # valid override
+                "informational_groups": "not-a-list",    # malformed → default
+                "public_attack_signatures": [{"decoder": "x"}],  # missing groups → default
+                # internal_movement_groups absent → default
+            }
+        ),
+        encoding="utf-8",
+    )
+    patterns = _load_patterns(partial)
+    assert patterns["known_fp_rule_ids"] == ["12345"]
+    assert patterns["informational_groups"] == _DEFAULTS["informational_groups"]
+    assert patterns["public_attack_signatures"] == _DEFAULTS["public_attack_signatures"]
+    assert patterns["internal_movement_groups"] == _DEFAULTS["internal_movement_groups"]

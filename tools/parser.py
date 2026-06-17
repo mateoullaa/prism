@@ -6,71 +6,171 @@ a structured dict ready for the enricher or reasoner. No external calls; pure st
 """
 
 import ipaddress
+import json
+import logging
+import os
+from pathlib import Path
 from typing import Any
 
+logger = logging.getLogger(__name__)
+
 
 # ---------------------------------------------------------------------------
-# Configurable list of (decoder, groups) signatures for public attack detection.
+# Classification pattern lists.
 #
-# An alert is classified as "public_attack" when:
-#   (a) decoder.name == entry["decoder"]  AND
-#   (b) at least ONE of entry["groups"] appears in rule.groups  AND
-#   (c) at least one relevant srcip in the alert is a public (non-private) IP.
+# These are loaded at import time from config/known_patterns.json so a SOC
+# analyst can add new FP rules or attack patterns by editing that file — no
+# code change, no test run required.  The values below are the built-in
+# DEFAULTS: a safety net used (per key) whenever the file is missing or a key
+# is malformed, so classification never silently degrades.
 #
-# Extend this list as new attack patterns are observed in corpus data.
-# rule.level is intentionally excluded — corpus evidence shows it does not
-# separate attacks from noise (external IPs appear across levels 3–5;
-# levels 9–10 are dominated by internal events).
-# ---------------------------------------------------------------------------
-PUBLIC_ATTACK_SIGNATURES: list[dict] = [
-    {
-        # Firewall-drop active response blocks: the original attack IP is also
-        # available at data.parameters.alert.data.srcip in addition to data.srcip.
-        "decoder": "ar_log_json",
-        "groups": ["active_response", "ossec"],
-    },
-    {
-        # Direct Apache error-log web attacks.
-        "decoder": "apache-errorlog",
-        "groups": ["apache", "web", "invalid_request"],
-    },
-]
-
-# ---------------------------------------------------------------------------
-# Configurable group lists for the informational and internal_movement categories.
+# Meaning of each key:
 #
-# INFORMATIONAL_GROUPS — rule.groups values that indicate non-actionable noise
-# (e.g. Windows service errors, dpkg packaging events).  Match ANY group present.
+# public_attack_signatures — (decoder, groups) signatures for public attacks.
+#   An alert is "public_attack" when (a) decoder.name == entry["decoder"] AND
+#   (b) at least ONE of entry["groups"] is in rule.groups AND (c) at least one
+#   relevant srcip is a public (non-private) IP.  rule.level is intentionally
+#   excluded — corpus evidence shows it does not separate attacks from noise.
 #
-# INTERNAL_MOVEMENT_GROUPS — rule.groups values that indicate internal activity
-# with no public IP (auth events, file-integrity checks, group changes, PAM/sudo,
-# vulnerability scan hits, VirusTotal syscheck callbacks).  Match ANY group present.
+# informational_groups — rule.groups values indicating non-actionable noise
+#   (Windows service errors, dpkg packaging events).  Match ANY group present.
+#
+# internal_movement_groups — rule.groups values indicating internal activity
+#   with no public IP (auth events, file-integrity checks, group changes,
+#   PAM/sudo, vulnerability scans, VirusTotal callbacks).  Match ANY present.
+#
+# known_fp_rule_ids — Windows rule IDs that are dominant, well-understood false
+#   positives.  60602 = single Security-SPP service-restart error; 61061 = the
+#   aggregation rule that groups multiple 60602 events (same root cause, FP).
 #
 # Evaluation order in _categorize_by_nature is STRICT:
-#   (1) public_attack  →  (2) internal_movement  →  (3) informational  →  "unknown"
-# This means public_attack always wins even if an alert also carries an
-# internal_movement or informational group.
+#   (1) public_attack → (2) internal_movement → (3) informational → "unknown".
+# public_attack always wins even if the alert also carries another group.
 # ---------------------------------------------------------------------------
-INFORMATIONAL_GROUPS: list[str] = [
-    "system_error",
-    "windows_application",
-    "dpkg",
-]
+_DEFAULTS: dict[str, Any] = {
+    "known_fp_rule_ids": ["60602", "61061"],
+    "informational_groups": [
+        "system_error",
+        "windows_application",
+        "dpkg",
+    ],
+    "internal_movement_groups": [
+        "authentication_success",
+        "authentication_failed",
+        "group_changed",
+        "win_group_changed",
+        "syscheck",
+        "syscheck_entry_added",
+        "syscheck_entry_modified",
+        "WEF",
+        "pam",
+        "sudo",
+        "vulnerability-detector",
+        "virustotal",
+    ],
+    "public_attack_signatures": [
+        {"decoder": "ar_log_json", "groups": ["active_response", "ossec"]},
+        {"decoder": "apache-errorlog", "groups": ["apache", "web", "invalid_request"]},
+    ],
+}
 
-INTERNAL_MOVEMENT_GROUPS: list[str] = [
-    "authentication_success",
-    "authentication_failed",
-    "group_changed",
-    "win_group_changed",
-    "syscheck",
-    "syscheck_entry_added",
-    "syscheck_entry_modified",
-    "WEF",
-    "pam",
-    "sudo",
-    "vulnerability-detector",
-    "virustotal",
-]
+
+def _config_path() -> Path:
+    """Resolve the known-patterns config file path.
+
+    Honors the ``KNOWN_PATTERNS_PATH`` environment override (useful for tests
+    and alternate deployments); otherwise defaults to the repo-root
+    ``config/known_patterns.json`` (this file lives in ``tools/``).
+    """
+    override = os.getenv("KNOWN_PATTERNS_PATH")
+    if override:
+        return Path(override)
+    return Path(__file__).resolve().parent.parent / "config" / "known_patterns.json"
+
+
+def _is_str_list(value: Any) -> bool:
+    """True if value is a list whose every element is a string."""
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _is_signature_list(value: Any) -> bool:
+    """True if value is a list of {decoder: str, groups: non-empty str list} dicts."""
+    if not isinstance(value, list):
+        return False
+    for entry in value:
+        if not isinstance(entry, dict):
+            return False
+        if not isinstance(entry.get("decoder"), str):
+            return False
+        groups = entry.get("groups")
+        if not _is_str_list(groups) or not groups:
+            return False
+    return True
+
+
+_VALIDATORS: dict[str, Any] = {
+    "known_fp_rule_ids": _is_str_list,
+    "informational_groups": _is_str_list,
+    "internal_movement_groups": _is_str_list,
+    "public_attack_signatures": _is_signature_list,
+}
+
+
+def _load_patterns(path: Path | None = None) -> dict:
+    """Load classification patterns from JSON, falling back to ``_DEFAULTS``.
+
+    Reads ``path`` (or the resolved config path), then for EACH key validates
+    the expected shape and falls back to the built-in default if the key is
+    absent or malformed, logging one warning per fallback.  Never raises: a
+    missing or corrupt file yields a fully-defaulted result, so the pipeline
+    keeps running (per CONVENTIONS.md).
+
+    Returns:
+        Dict with the same keys as ``_DEFAULTS``; values are validated.
+    """
+    target = path if path is not None else _config_path()
+
+    raw: dict = {}
+    try:
+        with open(target, encoding="utf-8") as fh:
+            loaded = json.load(fh)
+        if isinstance(loaded, dict):
+            raw = loaded
+        else:
+            logger.warning(
+                "known_patterns: %s is not a JSON object; using all defaults", target
+            )
+    except FileNotFoundError:
+        logger.warning(
+            "known_patterns: %s not found; using built-in defaults", target
+        )
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning(
+            "known_patterns: failed to read %s (%s); using built-in defaults",
+            target,
+            exc,
+        )
+
+    result: dict[str, Any] = {}
+    for key, default in _DEFAULTS.items():
+        value = raw.get(key)
+        if value is not None and _VALIDATORS[key](value):
+            result[key] = value
+        else:
+            if value is not None:
+                logger.warning(
+                    "known_patterns: key %r is malformed; using default", key
+                )
+            result[key] = default
+    return result
+
+
+_patterns = _load_patterns()
+
+PUBLIC_ATTACK_SIGNATURES: list[dict] = _patterns["public_attack_signatures"]
+INFORMATIONAL_GROUPS: list[str] = _patterns["informational_groups"]
+INTERNAL_MOVEMENT_GROUPS: list[str] = _patterns["internal_movement_groups"]
+KNOWN_FP_RULE_IDS: set[str] = set(_patterns["known_fp_rule_ids"])
 
 
 def _get(src: dict, path: str, default: Any = None) -> Any:
@@ -183,7 +283,7 @@ def _extract_windows_event(src: dict) -> tuple[list[dict], dict, bool]:
         "computer": _get(src, "data.win.system.computer"),
         "agent_name": _get(src, "agent.name"),
     }
-    is_fp = rule_id == "60602"
+    is_fp = rule_id in KNOWN_FP_RULE_IDS
     return iocs, context, is_fp
 
 

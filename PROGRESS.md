@@ -13,10 +13,11 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Handle wrapped `_source` format and direct format
   - [x] Classifier for the 5 alert types
   - [x] IOC extraction per type (with private IP filter)
-  - [x] `tests/test_parser.py` against all 6 fixtures (25/25 passing)
+  - [x] `tests/test_parser.py` against all 7 fixtures (windows_spp_grouped.json added)
   - [x] `workflows/parser.md`
-  - [x] Categorization axis by nature: `nature_category` field (public_attack / internal_movement / informational / unknown); INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES constants; evaluation order: public_attack → internal_movement → informational → unknown; 10 new tests (69/69 total)
-  - [x] Public attack detection: decoder + groups + external srcip. Initial list: `ar_log_json` + `active_response`/`ossec` (firewall); `apache-errorlog` + `apache`/`web`/`invalid_request` (web attacks)
+  - [x] Categorization axis by nature: `nature_category` field (public_attack / internal_movement / informational / unknown); loaded from `config/known_patterns.json` (with code `_DEFAULTS` fallback); evaluation order: public_attack → internal_movement → informational → unknown; 13 new tests (180 → 187 total)
+  - [x] Public attack detection: decoder + groups + external srcip. Configurable lists now in `config/known_patterns.json`
+  - [x] Known FP candidates: rule 60602 + rule 61061 (aggregation of 60602); both flagged in config
 - [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB _(public APIs, no server)_
   - [x] VirusTotal client with rate limiting (~4 req/min free tier)
   - [x] AbuseIPDB client
@@ -59,7 +60,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Reviewer APPROVED (no blockers)
   - [x] `workflows/main.md`
   - [x] `requirements.txt` updated: `httpx>=0.27` (TestClient/Starlette clean-clone dependency)
-  - [x] 180 total tests passing (zero regressions)
+  - [x] 187 total tests passing (zero regressions)
 - [ ] **7. Shuffle integration** — coordinate with the SOC team
 
 ## Blocked / waiting
@@ -82,7 +83,7 @@ Build item 7 (Shuffle integration — coordinate with SOC team on outbound HTTP 
 
 **Pending (blocked — needs live server):** 5. [ ] Risk_score + enrichment calibration validated live on only 1/6 fixtures (`memory.md` live-test note); validate the remaining 5 against real Ollama (VPN + server) post-router.
 
-Test suite: 180 passing (parser 25 + enricher 21 + reasoner 46 + router 29 + logger 23 + pipeline 2 + main 9).
+Test suite: 187 passing (parser 32 + enricher 21 + reasoner 46 + router 29 + logger 23 + pipeline 2 + main 9).
 
 ## v2 ideas (DO NOT implement now)
 

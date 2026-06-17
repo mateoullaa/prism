@@ -1,6 +1,8 @@
 .env
 data/real_alerts/
 *.real.json
+# Raw, non-anonymized alert captures (real company data) live directly under data/
+data/*_real.json
 metrics/
 *.csv
 __pycache__/

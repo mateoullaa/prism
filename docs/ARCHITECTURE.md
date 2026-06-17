@@ -52,9 +52,9 @@ The parser decides; if no external IOC, goes directly to the reasoner.
 ## Categorization by nature
 
 Alerts classified on a separate axis by nature (independent of technical type):
-- **public attack:** external IP targeting exposed asset. Firm criterion: match decoder + groups against configurable list AND srcip is public.
-- **informational:** non-attack alert (e.g., log rotation, service start). Criterion: rule.groups match INFORMATIONAL_GROUPS constant (system_error, windows_application, dpkg, etc.).
-- **internal movement:** internal host-to-host or host-to-service traffic. Criterion: rule.groups match INTERNAL_MOVEMENT_GROUPS constant (authentication*, group_changed, syscheck, vulnerability-detector, etc.).
+- **public attack:** external IP targeting exposed asset. Firm criterion: match decoder + groups against PUBLIC_ATTACK_SIGNATURES (loaded from `config/known_patterns.json`) AND srcip is public.
+- **informational:** non-attack alert (e.g., log rotation, service start). Criterion: rule.groups match INFORMATIONAL_GROUPS (from config, with code defaults fallback).
+- **internal movement:** internal host-to-host or host-to-service traffic. Criterion: rule.groups match INTERNAL_MOVEMENT_GROUPS (from config, with code defaults fallback).
 
 v1 focus is on detecting PUBLIC ATTACKS (public threat indicators).
 
@@ -62,11 +62,11 @@ v1 focus is on detecting PUBLIC ATTACKS (public threat indicators).
 
 **Criterion:** match decoder + groups against configurable list AND srcip is public (not 192.168.*, 10.*, 172.16–31.*).
 
-**Configurable list** (never hardcoded; lives in config file or constant; extends over time):
+**Configurable list** (loaded from `config/known_patterns.json` at runtime; with code `_DEFAULTS` as fallback):
 - `ar_log_json` + groups `active_response`, `ossec` → firewall block alerts
 - `apache-errorlog` + groups `apache`, `web`, `invalid_request` → web attacks
 
-List refined with corpus data over time.
+List refined with corpus data over time. Parser loader handles missing/malformed config gracefully (per-key fallback to code defaults, no exception).
 
 ## Reasoner output contract (strict JSON)
 

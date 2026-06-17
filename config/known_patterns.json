@@ -1,0 +1,22 @@
+{
+  "known_fp_rule_ids": ["60602", "61061"],
+  "informational_groups": ["system_error", "windows_application", "dpkg"],
+  "internal_movement_groups": [
+    "authentication_success",
+    "authentication_failed",
+    "group_changed",
+    "win_group_changed",
+    "syscheck",
+    "syscheck_entry_added",
+    "syscheck_entry_modified",
+    "WEF",
+    "pam",
+    "sudo",
+    "vulnerability-detector",
+    "virustotal"
+  ],
+  "public_attack_signatures": [
+    {"decoder": "ar_log_json", "groups": ["active_response", "ossec"]},
+    {"decoder": "apache-errorlog", "groups": ["apache", "web", "invalid_request"]}
+  ]
+}

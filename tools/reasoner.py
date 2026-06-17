@@ -205,12 +205,15 @@ def build_prompt(parsed: dict) -> str:
     if context_lines:
         parts.append("Context:\n" + "\n".join(context_lines))
 
-    # FP candidate hint for the dominant known-FP rule (60602)
+    # FP candidate hint for the dominant known-FP Windows SPP rules
+    # (60602 single events / 61061 their aggregation — same root cause).
     if parsed.get("is_known_fp_candidate"):
         parts.append(
-            "Note: This alert matches rule 60602 (Windows SPP service error), "
-            "which accounts for ~61% of corpus false positives. "
-            "Consider FALSE_POSITIVE with HIGH confidence if no other suspicious indicators are present."
+            "Note: This alert matches a known Windows Security-SPP service-error "
+            "false positive (rule 60602, or its 61061 aggregation of multiple "
+            "60602 events), which accounts for the largest share of corpus false "
+            "positives. Consider FALSE_POSITIVE with HIGH confidence if no other "
+            "suspicious indicators are present."
         )
 
     alert_data = "\n".join(parts)

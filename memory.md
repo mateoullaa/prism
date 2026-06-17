@@ -67,3 +67,5 @@ Format: `[date] category — learning / decision`.
 ## Pending items (non-blocking)
 - [2026-06] RESOLVED: OllamaClient now exposes a public `model` property; `reason()` reads
   `client.model` (no more `getattr(client, "_model")`).
+- [2026-06] Rule 61061 (Windows SPP aggregation) is the grouping rule for 60602 errors. Both emitted by production; treat as known FP pair. Listed in `config/known_patterns.json` under `known_fp_rule_ids`.
+- [2026-06] Parser classification lists (INFORMATIONAL_GROUPS, INTERNAL_MOVEMENT_GROUPS, PUBLIC_ATTACK_SIGNATURES, KNOWN_FP_RULE_IDS) externalized to `config/known_patterns.json`. Loader in parser.py: per-key fallback to code `_DEFAULTS` if file missing or key malformed; no exception, no silent degradation (logs warning + uses default). Safe for hand-edits to config without breaking pipeline.
