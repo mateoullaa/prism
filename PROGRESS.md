@@ -30,7 +30,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Defensive JSON validation (`_parse_llm_json`, `_validate_verdict`) + enum normalization + risk_score coerce/clamp 1–10
   - [x] Code-level FP guardrail: FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade (conservative bias)
   - [x] Fallback verdict (NEEDS_REVIEW/LOW, never crash) for all failure paths (timeout, connection, HTTP!=200, invalid JSON, contract violation)
-  - [x] `tests/test_reasoner.py` — 46 tests (mocked OllamaClient, no network); 115 total with parser+enricher
+  - [x] `tests/test_reasoner.py` — 48 tests (mocked OllamaClient, no network); 189 total tests passing (zero regressions)
   - [x] `workflows/reasoner.md`
 - [x] **4. `tools/router.py`** — action decision (Prism decides create-or-not-case; only alerts that warrant a case are sent to Shuffle)
   - [x] route() contract: reads parsed["verdict"] + parsed["reasoner_meta"], writes parsed["routing"], in-place mutation
@@ -60,13 +60,13 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Reviewer APPROVED (no blockers)
   - [x] `workflows/main.md`
   - [x] `requirements.txt` updated: `httpx>=0.27` (TestClient/Starlette clean-clone dependency)
-  - [x] 187 total tests passing (zero regressions)
+  - [x] 189 total tests passing (zero regressions)
 - [ ] **7. Shuffle integration** — coordinate with the SOC team
 
 ## Blocked / waiting
 
 - Own SSH credentials for the server (request a personal account; do not use a shared user).
-- Live prompt iteration (1 of 6 fixtures tested: windows_spp_error.json via VPN smoke test PASSED, no regression). Enrichment interpretation rules added to reasoner prompt and verified live (malicious-IP alert flips to TRUE_POSITIVE as intended). Router build can proceed; remaining 5 fixtures and edge cases iterate post-router.
+- Live prompt iteration: all 6 fixtures validated live (2026-06-21). All 6 now return status=ok — the 2 that fell to fallback (vulnerability.json, windows_logon.json) were fixed by defaulting risk_score=5 for NEEDS_REVIEW with absent score. Enrichment interpretation rules verified live (malicious-IP alert flips to TRUE_POSITIVE as intended).
 
 ## Next immediate step
 
@@ -81,9 +81,9 @@ Build item 7 (Shuffle integration — coordinate with SOC team on outbound HTTP 
 
 **RESOLVED:** 3. [x] End-to-end pipeline test added (`tests/test_pipeline.py`): chained `parse_alert → enrich → reason`, external-IP and no-IOC paths, all mocked. 4. [x] `parser.py` non-list `rule.groups` guard now covered (`tests/test_parser.py` §13: scalar treated as single element; no substring false-match).
 
-**Pending (blocked — needs live server):** 5. [ ] Risk_score + enrichment calibration validated live on only 1/6 fixtures (`memory.md` live-test note); validate the remaining 5 against real Ollama (VPN + server) post-router.
+**RESOLVED:** 5. [x] Risk_score contract-validation fallback fixed: _validate_verdict() now defaults risk_score=5 for NEEDS_REVIEW with absent score; TRUE_POSITIVE/FALSE_POSITIVE still fatal. Both failing fixtures confirmed ok live (2026-06-21). 189 tests passing.
 
-Test suite: 187 passing (parser 32 + enricher 21 + reasoner 46 + router 29 + logger 23 + pipeline 2 + main 9).
+Test suite: 189 passing (parser 32 + enricher 21 + reasoner 48 + router 29 + logger 23 + pipeline 2 + main 9).
 
 ## v2 ideas (DO NOT implement now)
 

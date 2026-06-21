@@ -39,8 +39,9 @@ Format: `[date] category — learning / decision`.
 
 ## Technical learnings
 - [2026-06] Enrichment interpretation rules added to reasoner prompt (not code): qwen2.5:3b was ignoring strong enrichment signals (e.g., AbuseIPDB score=100, VT malicious=16) and returning NEEDS_REVIEW. Thresholds now explicit in prompt (score≥80 + reports≥10 → TRUE_POSITIVE; VT malicious≥5 → TRUE_POSITIVE).
-- [2026-06] Risk_score calibration: FALSE_POSITIVE alerts must return 1–2, critical TRUE_POSITIVE attacks 8–10. Rule enforced in prompt via _PROMPT_PREFIX conservative-bias section (not code-level guardrail). Calibration ensures verdict and risk_score align.
-- [2026-06] Live smoke test (windows_spp_error.json vs. real Ollama, qwen2.5:3b): verdict FALSE_POSITIVE, confidence HIGH, risk_score 1, latency 9873 ms (cold start ~9s, within 30s timeout). Confirms valid JSON contract, format rule honored, calibration rule applied.
+- [2026-06] Risk_score calibration (valid LLM JSON only): FALSE_POSITIVE 1–2, TRUE_POSITIVE 8–10, enforced in prompt via _PROMPT_PREFIX. Fallback verdicts use fixed risk_score=5 (independent of calibration). Ensures verdict and risk_score align.
+- [2026-06] All 6 reasoner fixtures validated live (2026-06-21): 4/6 valid JSON; 2/6 (vulnerability.json, windows_logon.json) → fallback. virustotal.json: FP guardrail worked (downgraded FALSE_POSITIVE/non-HIGH → NEEDS_REVIEW). ssh_attack.json "Enrichment: unavailable" is a runner artifact — `reasoner.py` `__main__` never calls `enrich()` (main.py pipeline does); .env keys irrelevant there; not a bug.
+- [2026-06] Contract-validation fallback RESOLVED: qwen2.5:3b omits `risk_score` on NEEDS_REVIEW/LOW verdicts. Fix in _validate_verdict(): if verdict==NEEDS_REVIEW and risk_score is None, default to 5 (logged at INFO); TRUE_POSITIVE/FALSE_POSITIVE with missing risk_score still fatal (calibration-significant). Both previously-failing fixtures (vulnerability.json, windows_logon.json) now return status=ok with real LLM justification. 189 tests passing.
 - [2026-06] Real corpus: 6,320 alerts / 3 days. 61% is a single FP: Rule 60602 (Windows SPP
   service, on an endpoint agent, every ~30s). Test case #1 for FP detection.
 - [2026-06] ~85% of alerts have no external IOCs → conditional enrichment.
@@ -48,8 +49,6 @@ Format: `[date] category — learning / decision`.
 - [2026-06] VirusTotal free API ≈ 4 req/min. Handle rate limiting in the enricher.
 - [2026-06] Enricher clients (RateLimiter + TTLCache) must be module-level singletons in main.py
   and injected via clients= param, or VT rate limit won't hold across alerts.
-- [2026-06] Dependencies (requests, python-dotenv) installed system-wide Python 3.14 via
-  `pip install --isolated` (venv pip.ini broken). Both in requirements.txt.
 - [2026-06] Conservative bias enforced in reasoner CODE: FP guardrail (FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade); all failure paths (timeout, connection, JSON invalid, contract violation) fall back to NEEDS_REVIEW/LOW. Never crash, never discard an alert.
 - [2026-06] Ollama `format: "json"` + `temperature=0` force strict JSON from qwen2.5:3b; output still validated defensively (extract `{...}`, normalize enums, coerce risk_score to int 1–10, null malformed mitre).
 - [2026-06] WAT docs drift silently from actual tool code: pre-router audit found `workflows/*.md` documented non-existent nested verdicts (`verdict.classification`, `mitre_tags`) that never existed in actual `tools/reasoner.py` (which returns flat dict). Before building any downstream consumer (router, logger, main), verify each tool's output contract against the actual tool code, not just the `.md` (reviewer audit caught this before router was built on a wrong contract).
@@ -58,9 +57,7 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Defensive last-resort catch-all wraps main orchestration: any unexpected error returns HTTP 200 + conservative create_case escalation body (never 500), AND writes best-effort CSV audit row (wrapped, never re-raises). Honors mandatory "every alert logged" invariant even on catastrophic pipeline failure.
 
 ## Resolved errors
-- [2026-06] Project venv's pip.ini has global `target` pointing to Python 3.12 dir; breaks
-  `pip install` for 3.14 venv. Workaround: run tests directly with 3.14 interpreter:
-  `"C:/Users/usuario/AppData/Local/Python/pythoncore-3.14-64/python.exe" -m pytest tests/...`
+- [2026-06] pip: global `global.target` setting pointed to OLD Python 3.12 (revealed by `pip config list`), forcing installs to wrong location. Fixed with `python -m pip config unset global.target`; pip then installed normally into 3.14 venv. (Supersedes earlier "--isolated" and "hardcoded interpreter" workarounds.)
 - [2026-06] RFC 5737 TEST-NET ranges (192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24) return
   `is_private=True` in Python 3.11+. For public IP tests use 8.8.8.8 or 1.1.1.1 instead.
 

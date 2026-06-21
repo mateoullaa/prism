@@ -264,6 +264,34 @@ def test_validate_verdict_non_numeric_risk_score_returns_none():
     assert result is None
 
 
+def test_validate_verdict_missing_risk_score_needs_review_defaults_to_5():
+    """NEEDS_REVIEW with absent risk_score gets a safe default of 5 instead of invalidating."""
+    obj = {
+        "verdict": "NEEDS_REVIEW",
+        "confidence": "LOW",
+        "justification": "Insufficient signals to determine verdict.",
+        "mitre": None,
+        "next_action": "Escalate to analyst for manual review.",
+    }
+    result = _validate_verdict(obj)
+    assert result is not None
+    assert result["verdict"] == "NEEDS_REVIEW"
+    assert result["risk_score"] == 5
+
+
+def test_validate_verdict_missing_risk_score_true_positive_returns_none():
+    """TRUE_POSITIVE with absent risk_score still fails validation (score is calibration-significant)."""
+    obj = {
+        "verdict": "TRUE_POSITIVE",
+        "confidence": "HIGH",
+        "justification": "External IP performed repeated SSH login attempts.",
+        "mitre": {"id": "T1110", "name": "Brute Force"},
+        "next_action": "Block source IP at perimeter firewall.",
+    }
+    result = _validate_verdict(obj)
+    assert result is None
+
+
 # ---------------------------------------------------------------------------
 # 6. FP guardrail: FALSE_POSITIVE + non-HIGH confidence → forced NEEDS_REVIEW
 # ---------------------------------------------------------------------------

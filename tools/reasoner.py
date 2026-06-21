@@ -387,13 +387,23 @@ def _validate_verdict(obj: dict) -> dict | None:
         logger.debug("Invalid confidence value: %r", obj.get("confidence"))
         return None
 
-    # Coerce and clamp risk_score
+    # Coerce and clamp risk_score.
+    # Special case: NEEDS_REVIEW with a missing/None risk_score gets a safe default of
+    # 5 rather than a fatal rejection.  For TRUE_POSITIVE and FALSE_POSITIVE a missing
+    # score is still fatal — those verdicts carry calibration-significant scores (8-10
+    # and 1-2 respectively) and we prefer an explicit fallback to an invented number.
     raw_score = obj.get("risk_score")
-    try:
-        risk_score = max(1, min(10, int(float(str(raw_score)))))
-    except (TypeError, ValueError):
-        logger.debug("Invalid risk_score: %r", raw_score)
-        return None
+    if raw_score is None and verdict == "NEEDS_REVIEW":
+        risk_score = 5
+        logger.info(
+            "risk_score absent for NEEDS_REVIEW verdict; defaulting to 5"
+        )
+    else:
+        try:
+            risk_score = max(1, min(10, int(float(str(raw_score)))))
+        except (TypeError, ValueError):
+            logger.debug("Invalid risk_score: %r", raw_score)
+            return None
 
     # Validate justification (non-empty string)
     justification = obj.get("justification", "")
@@ -555,6 +565,12 @@ def reason(parsed: dict, *, client: OllamaClient | None = None) -> dict:
     verdict_dict = _validate_verdict(obj)
     if verdict_dict is None:
         reason_str = "LLM response failed contract validation"
+        # Preserve the LLM output before it is discarded: in production this is
+        # the only record of what the model actually returned when it broke the
+        # contract. _validate_verdict() emits a DEBUG line naming the offending
+        # field; these WARNINGs capture the full payload alongside it.
+        logger.warning("Contract validation failed; raw LLM response: %r", raw_text)
+        logger.warning("Contract validation failed; parsed-but-invalid object: %r", obj)
         parsed["verdict"] = fallback_verdict(reason_str)
         parsed["reasoner_meta"] = {
             "status": "fallback",
@@ -594,6 +610,12 @@ def reason(parsed: dict, *, client: OllamaClient | None = None) -> dict:
 
 if __name__ == "__main__":
     from pathlib import Path as _Path
+
+    # Surface the module loggers (incl. the contract-validation WARNINGs above
+    # and the field-level DEBUG lines in _validate_verdict) for manual runs.
+    logging.basicConfig(
+        level=logging.DEBUG, format="%(levelname)s %(name)s: %(message)s"
+    )
 
     _repo_root = _Path(__file__).resolve().parent.parent
     sys.path.insert(0, str(_repo_root))
