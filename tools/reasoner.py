@@ -26,6 +26,12 @@ logger = logging.getLogger(__name__)
 _VALID_VERDICTS = {"TRUE_POSITIVE", "FALSE_POSITIVE", "NEEDS_REVIEW"}
 _VALID_CONFIDENCES = {"HIGH", "MEDIUM", "LOW"}
 
+# Enrichment thresholds — evaluated in Python before the prompt is built so
+# the model never has to do numeric comparisons itself.
+_ABUSEIPDB_SCORE_THRESHOLD = 80
+_ABUSEIPDB_REPORTS_THRESHOLD = 10
+_VT_MALICIOUS_THRESHOLD = 5
+
 
 # ---------------------------------------------------------------------------
 # OllamaClient
@@ -140,14 +146,14 @@ CONSERVATIVE BIAS RULES (mandatory):
 - When in doubt between TRUE_POSITIVE and NEEDS_REVIEW, choose NEEDS_REVIEW.
 - FALSE_POSITIVE alerts should have risk_score 1-2. TRUE_POSITIVE critical attacks should be 8-10.
 
-ENRICHMENT INTERPRETATION RULES (when enrichment data is available):
-- AbuseIPDB abuse_confidence_score >= 80 AND total_reports >= 10: strong evidence of malicious IP. Weight heavily toward TRUE_POSITIVE.
-- VirusTotal malicious >= 5: confirmed malicious by multiple engines. Weight heavily toward TRUE_POSITIVE.
-- Both AbuseIPDB score >= 80 AND VirusTotal malicious >= 5: return TRUE_POSITIVE with HIGH confidence.
-- AbuseIPDB score < 20 AND VirusTotal malicious == 0: weight toward FALSE_POSITIVE or NEEDS_REVIEW depending on other context.
+ENRICHMENT SIGNALS (thresholds pre-evaluated — trust these assessments):
+- "threshold MET -> HIGH RISK": this provider confirmed the IP is malicious. Weight strongly toward TRUE_POSITIVE.
+- "threshold NOT MET -> LOW RISK": no significant threat signal from this provider.
+- Multiple providers showing HIGH RISK: return TRUE_POSITIVE with HIGH confidence.
+- All providers showing LOW RISK: weight toward FALSE_POSITIVE or NEEDS_REVIEW based on other context.
 
 EXAMPLE OF VALID OUTPUT:
-{"verdict": "TRUE_POSITIVE", "confidence": "HIGH", "justification": "External IP performed repeated SSH login attempts with invalid usernames. Pattern matches brute-force credential stuffing. Source country has no known business relationship.", "mitre": {"id": "T1110", "name": "Brute Force"}, "next_action": "Block source IP at perimeter firewall and investigate targeted account.", "risk_score": 7}
+{"verdict": "TRUE_POSITIVE", "confidence": "HIGH", "justification": "Alert characteristics match a known attack pattern. Source is an external IP with confirmed malicious reputation across multiple threat intelligence sources. No legitimate business use case identified for this traffic.", "mitre": null, "next_action": "Block the source IP at the perimeter and escalate to tier-2 analyst for deeper investigation.", "risk_score": 8}
 
 ALERT DATA:
 """
@@ -190,9 +196,9 @@ def build_prompt(parsed: dict) -> str:
     else:
         parts.append("IOCs: none")
 
-    # Enrichment summary — only ok/cached entries; rest noted as unavailable
+    # Enrichment — thresholds evaluated in Python; model receives conclusions, not raw numbers
     enrichment: dict = parsed.get("enrichment", {})
-    enrichment_lines = _summarize_enrichment(enrichment)
+    enrichment_lines = _evaluate_enrichment(enrichment)
     if enrichment_lines:
         parts.append("Enrichment:\n" + "\n".join(enrichment_lines))
     else:
@@ -220,11 +226,13 @@ def build_prompt(parsed: dict) -> str:
     return _PROMPT_PREFIX + alert_data + _PROMPT_SUFFIX
 
 
-def _summarize_enrichment(enrichment: dict) -> list[str]:
-    """Return human-readable enrichment lines for ok/cached entries only.
+def _evaluate_enrichment(enrichment: dict) -> list[str]:
+    """Evaluate enrichment thresholds in Python and return pre-labelled lines.
 
-    Skips entries with status error, rate_limited, or skipped to avoid
-    misleading the LLM with absent data.
+    Each line states the raw values AND the pre-computed risk label so the LLM
+    never has to do numeric comparisons itself.  Only ok/cached entries are
+    included; error/rate_limited/skipped entries are silently dropped to avoid
+    misleading the model with absent data.
     """
     lines: list[str] = []
     for ip, providers in enrichment.items():
@@ -233,20 +241,25 @@ def _summarize_enrichment(enrichment: dict) -> list[str]:
         for provider, data in providers.items():
             if not isinstance(data, dict):
                 continue
-            status = data.get("status", "")
-            if status not in ("ok", "cached"):
+            if data.get("status") not in ("ok", "cached"):
                 continue
-            if provider == "virustotal":
+            if provider == "abuseipdb":
+                score = int(data.get("abuse_confidence_score") or 0)
+                reports = int(data.get("total_reports") or 0)
+                met = score >= _ABUSEIPDB_SCORE_THRESHOLD and reports >= _ABUSEIPDB_REPORTS_THRESHOLD
+                label = "threshold MET -> HIGH RISK" if met else "threshold NOT MET -> LOW RISK"
                 lines.append(
-                    f"  - {ip} [VirusTotal]: malicious={data.get('malicious', 0)}, "
-                    f"suspicious={data.get('suspicious', 0)}, "
-                    f"reputation={data.get('reputation', 0)}"
+                    f"  - {ip} [AbuseIPDB]: abuse_confidence_score={score}, "
+                    f"reports={reports} — {label}"
                 )
-            elif provider == "abuseipdb":
+            elif provider == "virustotal":
+                malicious = int(data.get("malicious") or 0)
+                suspicious = int(data.get("suspicious") or 0)
+                met = malicious >= _VT_MALICIOUS_THRESHOLD
+                label = "threshold MET -> HIGH RISK" if met else "threshold NOT MET -> LOW RISK"
                 lines.append(
-                    f"  - {ip} [AbuseIPDB]: confidence={data.get('abuse_confidence_score', 0)}%, "
-                    f"reports={data.get('total_reports', 0)}, "
-                    f"country={data.get('country_code', 'N/A')}"
+                    f"  - {ip} [VirusTotal]: malicious={malicious}, "
+                    f"suspicious={suspicious} — {label}"
                 )
     return lines
 

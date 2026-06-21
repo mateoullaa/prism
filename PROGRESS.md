@@ -30,7 +30,12 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Defensive JSON validation (`_parse_llm_json`, `_validate_verdict`) + enum normalization + risk_score coerce/clamp 1–10
   - [x] Code-level FP guardrail: FALSE_POSITIVE + confidence != HIGH → NEEDS_REVIEW downgrade (conservative bias)
   - [x] Fallback verdict (NEEDS_REVIEW/LOW, never crash) for all failure paths (timeout, connection, HTTP!=200, invalid JSON, contract violation)
-  - [x] `tests/test_reasoner.py` — 48 tests (mocked OllamaClient, no network); 189 total tests passing (zero regressions)
+  - [x] Few-shot example replaced with domain-neutral text (mitre=null) — eliminates SSH hallucination
+  - [x] _evaluate_enrichment(): thresholds evaluated in Python (named constants _ABUSEIPDB_SCORE_THRESHOLD=80, etc.), model receives pre-evaluated conclusions (HIGH/LOW RISK labels); numeric comparisons removed from prompt
+  - [x] Prompt ENRICHMENT INTERPRETATION RULES simplified to 4 lines (logic now in code, not prose rules)
+  - [x] test_reason_idempotent_payload: 5× same dict, payload bit-for-bit identical — confirms build_prompt() is pure
+  - [x] TestEvaluateEnrichment: 16 unit tests for _evaluate_enrichment() (threshold boundaries, status filtering, None coercion)
+  - [x] `tests/test_reasoner.py` — 65 tests (mocked OllamaClient, no network); 206 total tests passing (zero regressions)
   - [x] `workflows/reasoner.md`
 - [x] **4. `tools/router.py`** — action decision (Prism decides create-or-not-case; only alerts that warrant a case are sent to Shuffle)
   - [x] route() contract: reads parsed["verdict"] + parsed["reasoner_meta"], writes parsed["routing"], in-place mutation
@@ -83,7 +88,11 @@ Build item 7 (Shuffle integration — coordinate with SOC team on outbound HTTP 
 
 **RESOLVED:** 5. [x] Risk_score contract-validation fallback fixed: _validate_verdict() now defaults risk_score=5 for NEEDS_REVIEW with absent score; TRUE_POSITIVE/FALSE_POSITIVE still fatal. Both failing fixtures confirmed ok live (2026-06-21). 189 tests passing.
 
-Test suite: 189 passing (parser 32 + enricher 21 + reasoner 48 + router 29 + logger 23 + pipeline 2 + main 9).
+6. [x] Few-shot example SSH hallucination: `_PROMPT_PREFIX` example replaced with domain-neutral text (mitre=null). Confirmed via `test_reason_idempotent_payload` (payload deterministic, code clean) + 5/5 live runs post-fix with no SSH bleed.
+
+7. [x] abuse_confidence_score semantic inversion (3b model read 100 as "low"): thresholds moved to Python _evaluate_enrichment(); prompt receives pre-evaluated risk labels. 206 tests passing. 5/5 live runs TRUE_POSITIVE/HIGH/risk=8 consistent.
+
+Test suite: 206 passing (parser 32 + enricher 21 + reasoner 65 + router 29 + logger 23 + pipeline 2 + main 9).
 
 ## v2 ideas (DO NOT implement now)
 

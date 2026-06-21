@@ -19,6 +19,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from tools.reasoner import (  # noqa: E402
     OllamaClient,
+    _evaluate_enrichment,
     _parse_llm_json,
     _validate_verdict,
     build_prompt,
@@ -557,3 +558,142 @@ def test_fallback_verdict_includes_automated_unavailable_prefix():
     """fallback_verdict() always starts with 'Automated analysis unavailable:'."""
     fv = fallback_verdict("connection refused")
     assert fv["justification"].startswith("Automated analysis unavailable:")
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for _evaluate_enrichment (deterministic, no LLM)
+# ---------------------------------------------------------------------------
+
+_OK = "ok"
+_CACHED = "cached"
+
+
+def _abuse(score: int, reports: int, status: str = _OK) -> dict:
+    return {
+        "status": status,
+        "abuse_confidence_score": score,
+        "total_reports": reports,
+        "country_code": "CN",
+    }
+
+
+def _vt(malicious: int, suspicious: int = 0, status: str = _OK) -> dict:
+    return {
+        "status": status,
+        "malicious": malicious,
+        "suspicious": suspicious,
+        "reputation": -1,
+    }
+
+
+def _enrich(ip: str, **providers) -> dict:
+    return {ip: providers}
+
+
+class TestEvaluateEnrichment:
+    def test_abuseipdb_both_thresholds_met_is_high_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(100, 991)))
+        assert len(lines) == 1
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_abuseipdb_score_below_threshold_is_low_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(79, 50)))
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+    def test_abuseipdb_reports_below_threshold_is_low_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(90, 9)))
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+    def test_abuseipdb_exactly_at_threshold_is_high_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(80, 10)))
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_abuseipdb_raw_values_present_in_line(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(100, 991)))
+        assert "abuse_confidence_score=100" in lines[0]
+        assert "reports=991" in lines[0]
+
+    def test_vt_above_threshold_is_high_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", virustotal=_vt(16, 4)))
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_vt_exactly_at_threshold_is_high_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", virustotal=_vt(5)))
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_vt_below_threshold_is_low_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", virustotal=_vt(4)))
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+    def test_vt_zero_malicious_is_low_risk(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", virustotal=_vt(0)))
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+    def test_vt_raw_values_present_in_line(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", virustotal=_vt(16, 4)))
+        assert "malicious=16" in lines[0]
+        assert "suspicious=4" in lines[0]
+
+    def test_both_providers_high_risk_returns_two_lines(self):
+        enrichment = _enrich("1.2.3.4", abuseipdb=_abuse(100, 991), virustotal=_vt(16, 4))
+        lines = _evaluate_enrichment(enrichment)
+        assert len(lines) == 2
+        assert all("threshold MET -> HIGH RISK" in l for l in lines)
+
+    def test_error_status_excluded(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(100, 991, status="error")))
+        assert lines == []
+
+    def test_rate_limited_status_excluded(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", virustotal=_vt(16, status="rate_limited")))
+        assert lines == []
+
+    def test_cached_status_included(self):
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", abuseipdb=_abuse(100, 991, status=_CACHED)))
+        assert len(lines) == 1
+
+    def test_empty_enrichment_returns_empty_list(self):
+        assert _evaluate_enrichment({}) == []
+
+    def test_none_values_coerced_to_zero(self):
+        data = {"1.2.3.4": {"abuseipdb": {"status": "ok", "abuse_confidence_score": None, "total_reports": None}}}
+        lines = _evaluate_enrichment(data)
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+
+# ---------------------------------------------------------------------------
+# Payload idempotency — isolates our code from Ollama non-determinism
+# ---------------------------------------------------------------------------
+
+
+def test_reason_idempotent_payload():
+    """reason() must send bit-for-bit identical payloads on 5 consecutive calls
+    with the same parsed dict, even after in-place mutation from prior calls.
+
+    Isolates our prompt/payload construction from Ollama non-determinism:
+    if this passes, the root cause of live inconsistency is Ollama-side,
+    not our code.  Specifically verifies that reason()'s in-place mutation
+    (writing parsed["verdict"] and parsed["reasoner_meta"]) does NOT affect
+    what build_prompt() produces on the next call.
+    """
+    parsed = parse_alert(load_fixture("firewall_block.json"))
+
+    captured = []
+    for _ in range(5):
+        session = MagicMock()
+        session.post.return_value = _mock_response(
+            {"response": json.dumps(VALID_VERDICT_JSON)}
+        )
+        reason(parsed, client=_make_client(session))
+        payload = session.post.call_args[1]["json"]
+        captured.append(payload)
+
+    reference = captured[0]
+    for i, payload in enumerate(captured[1:], start=2):
+        assert payload["prompt"] == reference["prompt"], (
+            f"Call {i}: prompt differs from call 1 "
+            f"(mutation contamination or non-deterministic build_prompt)"
+        )
+        assert payload == reference, (
+            f"Call {i}: full payload differs from call 1"
+        )
