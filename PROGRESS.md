@@ -92,11 +92,22 @@ Build item 7 (Shuffle integration — coordinate with SOC team on outbound HTTP 
 
 7. [x] abuse_confidence_score semantic inversion (3b model read 100 as "low"): thresholds moved to Python _evaluate_enrichment(); prompt receives pre-evaluated risk labels. 206 tests passing. 5/5 live runs TRUE_POSITIVE/HIGH/risk=8 consistent.
 
-Test suite: 206 passing (parser 32 + enricher 21 + reasoner 65 + router 29 + logger 23 + pipeline 2 + main 9).
+Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23 + pipeline + main 9; 15 new OTX tests).
+
+## v2 Exploration — Branch `v2-exploration`
+
+- [x] **Item 1: OTX (AlienVault) enrichment source** — COMPLETE & TESTED + error cache (TTL 60s)
+  - OTXClient mirrors VirusTotal/AbuseIPDB pattern. Endpoint: GET v1/indicators/IPv4/{ip}/general. Header: X-OTX-API-KEY.
+  - Normalizes pulse_count (from pulse_info.count) + reputation; statuses ok|cached|rate_limited|skipped|error.
+  - RateLimiter bucket: 60 req/min (capacity 60 / 60s). Reasoner threshold: _OTX_PULSE_THRESHOLD=1 (pulse_count≥1 → HIGH RISK).
+  - `_build_default_clients()` now returns 3-tuple (vt, abuse, otx); shared session + TTLCache. Parallel queries max_workers=6.
+  - Error cache: TTLCache(ttl=60s, maxsize=1000) per-instance in OTXClient; IPs that timeout/error skip HTTP for 60s. Validated live: 185.220.101.1, 80.82.77.139 timeout consistently; error cache cuts repeat cost to ~0ms.
+  - TTLCache gains optional maxsize param (backward-compatible, default None).
+  - 225 total tests passing (was 221); zero regressions.
+  - Branch: v2-exploration; ready for merge review.
 
 ## v2 ideas (DO NOT implement now)
 
-- OTX (AlienVault) as additional enrichment source.
 - Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
 - Direct case creation in TheHive.
 - Automatic FP filtering based on real v1 metrics.

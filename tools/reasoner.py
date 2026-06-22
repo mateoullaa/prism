@@ -31,6 +31,8 @@ _VALID_CONFIDENCES = {"HIGH", "MEDIUM", "LOW"}
 _ABUSEIPDB_SCORE_THRESHOLD = 80
 _ABUSEIPDB_REPORTS_THRESHOLD = 10
 _VT_MALICIOUS_THRESHOLD = 5
+# OTX pulses are curated; even one referencing pulse is a meaningful signal → HIGH RISK.
+_OTX_PULSE_THRESHOLD = 1
 
 
 # ---------------------------------------------------------------------------
@@ -260,6 +262,15 @@ def _evaluate_enrichment(enrichment: dict) -> list[str]:
                 lines.append(
                     f"  - {ip} [VirusTotal]: malicious={malicious}, "
                     f"suspicious={suspicious} — {label}"
+                )
+            elif provider == "otx":
+                pulses = int(data.get("pulse_count") or 0)
+                reputation = int(data.get("reputation") or 0)
+                met = pulses >= _OTX_PULSE_THRESHOLD
+                label = "threshold MET -> HIGH RISK" if met else "threshold NOT MET -> LOW RISK"
+                lines.append(
+                    f"  - {ip} [OTX]: pulses={pulses}, "
+                    f"reputation={reputation} — {label}"
                 )
     return lines
 

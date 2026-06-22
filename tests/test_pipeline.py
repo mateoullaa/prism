@@ -58,12 +58,14 @@ def _ollama_client() -> OllamaClient:
 
 
 def _enrich_clients() -> tuple:
-    """(vt, abuse) mock clients whose query() returns canned 'ok' results."""
+    """(vt, abuse, otx) mock clients whose query() returns canned 'ok' results."""
     vt = MagicMock()
     vt.query.return_value = {"status": "ok", "malicious": 8, "reputation": -40}
     abuse = MagicMock()
     abuse.query.return_value = {"status": "ok", "abuse_confidence_score": 100}
-    return (vt, abuse)
+    otx = MagicMock()
+    otx.query.return_value = {"status": "ok", "pulse_count": 0, "reputation": 0}
+    return (vt, abuse, otx)
 
 
 def _assert_contract(result: dict) -> None:

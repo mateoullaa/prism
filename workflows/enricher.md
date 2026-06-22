@@ -10,7 +10,8 @@
   "enrichment": {
     "ip_1": {
       "virustotal": {"status": "ok|cached|rate_limited|skipped|error", "malicious": int, "suspicious": int, "reputation": int},
-      "abuseipdb": {"status": "ok|cached|rate_limited|skipped|error", "abuse_confidence_score": int, "total_reports": int, "country_code": str, "is_whitelisted": bool}
+      "abuseipdb": {"status": "ok|cached|rate_limited|skipped|error", "abuse_confidence_score": int, "total_reports": int, "country_code": str, "is_whitelisted": bool},
+      "otx": {"status": "ok|cached|rate_limited|skipped|error", "pulse_count": int, "reputation": int}
     },
     "ip_2": {...}
   }
@@ -26,6 +27,7 @@ If no external IOCs exist → `enrichment == {}` with **zero** external API call
 **Rate limiting (fail-fast token bucket):**
 - VirusTotal: 4 req/min (capacity 4 tokens, refilled every 60s; ~1 token every 15s average).
 - AbuseIPDB: 60 req/min (capacity 60 tokens, refilled every 60s; ~1 token every 1s average).
+- OTX (AlienVault): 60 req/min (capacity 60 tokens, refilled every 60s; conservative bucket for consistency).
 - `try_acquire()` returns `False` immediately if bucket empty; never blocks.
 - Status "rate_limited" assigned if token unavailable.
 
@@ -36,12 +38,13 @@ If no external IOCs exist → `enrichment == {}` with **zero** external API call
 - **CRITICAL for production:** cache + rate limiter only apply WITHIN one alert. `main.py` MUST hold module-level singletons (vt_client, abuse_client) and pass via `clients=` param, else VT 4 req/min limit is not enforced across alerts.
 
 **Concurrency:**
-- ThreadPoolExecutor (max_workers=4) queries both APIs in parallel.
+- ThreadPoolExecutor (max_workers=6) queries all three providers in parallel.
 - Fail-safe: per-source error handling; no exception propagates. All errors logged, contained.
 
 **Secrets (via .env):**
 - `VIRUSTOTAL_API_KEY` (required for VirusTotal).
 - `ABUSEIPDB_API_KEY` (required for AbuseIPDB).
+- `OTX_API_KEY` (required for OTX).
 - Missing key → status="skipped" for that source; no HTTP call.
 
 ---
@@ -58,6 +61,11 @@ If no external IOCs exist → `enrichment == {}` with **zero** external API call
 - Headers: `Key: <key>`, `Accept: application/json`.
 - Response → extract abuse_confidence_score, total_reports, usage_type, country_code, is_whitelisted.
 
+**OTX / AlienVault (GET v1/indicators/IPv4/{ip}/general):**
+- Header: `X-OTX-API-KEY: <key>`.
+- Response → extract `pulse_info.count` → pulse_count, reputation.
+- Normalizes status to ok|cached|rate_limited|skipped|error.
+
 ---
 
 ## Running tests
@@ -66,7 +74,7 @@ If no external IOCs exist → `enrichment == {}` with **zero** external API call
 "C:/Users/usuario/AppData/Local/Python/pythoncore-3.14-64/python.exe" -m pytest tests/test_enricher.py -v
 ```
 
-**Coverage:** 21 tests (mocked HTTP, rate limiting, caching, parallel execution, error handling).
+**Coverage:** Mocked HTTP, rate limiting, caching, parallel execution, error handling across VirusTotal, AbuseIPDB, and OTX providers. Test suite: 221 passing (15 new OTX tests added).
 
 ---
 

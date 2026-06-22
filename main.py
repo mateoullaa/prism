@@ -62,7 +62,7 @@ from tools.router import route  # noqa: E402
 # ---------------------------------------------------------------------------
 # Module-level singletons (built ONCE; shared across all requests)
 #
-# _ENRICHER_CLIENTS — (VirusTotalClient, AbuseIPDBClient) sharing one
+# _ENRICHER_CLIENTS — (VirusTotalClient, AbuseIPDBClient, OTXClient) sharing one
 #   requests.Session, one RateLimiter per provider, and one TTLCache.
 #   Singletons ensure the token bucket and cache state survive across requests.
 #

@@ -586,6 +586,14 @@ def _vt(malicious: int, suspicious: int = 0, status: str = _OK) -> dict:
     }
 
 
+def _otx(pulse_count: int | None, reputation: int = 0, status: str = _OK) -> dict:
+    return {
+        "status": status,
+        "pulse_count": pulse_count,
+        "reputation": reputation,
+    }
+
+
 def _enrich(ip: str, **providers) -> dict:
     return {ip: providers}
 
@@ -659,6 +667,71 @@ class TestEvaluateEnrichment:
         data = {"1.2.3.4": {"abuseipdb": {"status": "ok", "abuse_confidence_score": None, "total_reports": None}}}
         lines = _evaluate_enrichment(data)
         assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+    # OTX boundary tests
+
+    def test_otx_exactly_at_threshold_is_high_risk(self):
+        """pulse_count == 1 (at threshold) produces a HIGH RISK line."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(1, reputation=-5)))
+        assert len(lines) == 1
+        assert "[OTX]" in lines[0]
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_otx_below_threshold_is_low_risk(self):
+        """pulse_count == 0 (below threshold) produces a LOW RISK line."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(0)))
+        assert len(lines) == 1
+        assert "[OTX]" in lines[0]
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+
+    def test_otx_well_above_threshold_is_high_risk(self):
+        """pulse_count well above threshold (5) produces a HIGH RISK line."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(5, reputation=-20)))
+        assert len(lines) == 1
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_otx_raw_values_present_in_line(self):
+        """Raw pulses and reputation values are included in the returned line."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(3, reputation=-10)))
+        assert "pulses=3" in lines[0]
+        assert "reputation=-10" in lines[0]
+
+    def test_otx_error_status_excluded(self):
+        """OTX entry with status 'error' produces no line (filtered out)."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(5, status="error")))
+        assert lines == []
+
+    def test_otx_skipped_status_excluded(self):
+        """OTX entry with status 'skipped' produces no line (filtered out)."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(5, status="skipped")))
+        assert lines == []
+
+    def test_otx_cached_status_included(self):
+        """OTX entry with status 'cached' is treated identically to 'ok'."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(2, status=_CACHED)))
+        assert len(lines) == 1
+        assert "threshold MET -> HIGH RISK" in lines[0]
+
+    def test_otx_pulse_count_none_coerced_to_zero_no_crash(self):
+        """pulse_count=None is coerced to 0 without raising; produces LOW RISK line."""
+        lines = _evaluate_enrichment(_enrich("1.2.3.4", otx=_otx(None)))
+        assert len(lines) == 1
+        assert "threshold NOT MET -> LOW RISK" in lines[0]
+        assert "pulses=0" in lines[0]
+
+    def test_otx_three_providers_returns_three_lines(self):
+        """All three providers (abuseipdb, virustotal, otx) each produce one line."""
+        enrichment = _enrich(
+            "1.2.3.4",
+            abuseipdb=_abuse(100, 50),
+            virustotal=_vt(10),
+            otx=_otx(3),
+        )
+        lines = _evaluate_enrichment(enrichment)
+        assert len(lines) == 3
+        otx_lines = [l for l in lines if "[OTX]" in l]
+        assert len(otx_lines) == 1
+        assert "threshold MET -> HIGH RISK" in otx_lines[0]
 
 
 # ---------------------------------------------------------------------------

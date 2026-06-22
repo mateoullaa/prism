@@ -131,11 +131,11 @@ def _make_ollama_client_error() -> OllamaClient:
 
 
 def _make_enricher_clients() -> tuple:
-    """Return (vt_mock, abuse_mock) whose .query() returns canned 'ok' results.
+    """Return (vt_mock, abuse_mock, otx_mock) whose .query() returns canned 'ok' results.
 
     Returns:
-        Tuple of (VirusTotalClient mock, AbuseIPDBClient mock) with pre-set
-        return values for .query().
+        Tuple of (VirusTotalClient mock, AbuseIPDBClient mock, OTXClient mock) with
+        pre-set return values for .query().
     """
     vt = MagicMock()
     vt.query.return_value = {
@@ -152,7 +152,13 @@ def _make_enricher_clients() -> tuple:
         "country_code": "CN",
         "is_whitelisted": False,
     }
-    return vt, abuse
+    otx = MagicMock()
+    otx.query.return_value = {
+        "status": "ok",
+        "pulse_count": 0,
+        "reputation": 0,
+    }
+    return vt, abuse, otx
 
 
 # ---------------------------------------------------------------------------
@@ -213,8 +219,8 @@ def test_happy_path_true_positive(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
 
     ollama = _make_ollama_client(_TP_VERDICT)
-    vt, abuse = _make_enricher_clients()
-    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
 
     try:
         client = TestClient(app)
@@ -251,8 +257,8 @@ def test_false_positive_discarded(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOG_PATH", str(log_path))
 
     ollama = _make_ollama_client(_FP_VERDICT)
-    vt, abuse = _make_enricher_clients()
-    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
 
     try:
         client = TestClient(app)
@@ -292,7 +298,8 @@ def test_no_external_iocs_skips_enrichment(monkeypatch, tmp_path) -> None:
     ollama = _make_ollama_client(_NEEDS_REVIEW_VERDICT)
     vt = MagicMock()
     abuse = MagicMock()
-    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+    otx = MagicMock()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
 
     try:
         client = TestClient(app)
@@ -328,8 +335,8 @@ def test_external_ioc_triggers_enrichment(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
 
     ollama = _make_ollama_client(_TP_VERDICT)
-    vt, abuse = _make_enricher_clients()
-    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
 
     try:
         client = TestClient(app)
@@ -360,8 +367,8 @@ def test_ollama_failure_returns_needs_review(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
 
     ollama = _make_ollama_client_error()
-    vt, abuse = _make_enricher_clients()
-    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
 
     try:
         client = TestClient(app)
@@ -393,7 +400,7 @@ def test_every_alert_logged(monkeypatch, tmp_path) -> None:
     log_path = tmp_path / "triage.csv"
     monkeypatch.setenv("LOG_PATH", str(log_path))
 
-    vt, abuse = _make_enricher_clients()
+    vt, abuse, otx = _make_enricher_clients()
 
     requests_plan = [
         ("firewall_block.json", _TP_VERDICT),    # create_case
@@ -403,7 +410,7 @@ def test_every_alert_logged(monkeypatch, tmp_path) -> None:
 
     for fixture_name, verdict in requests_plan:
         ollama = _make_ollama_client(verdict)
-        app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+        app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
         client = TestClient(app)
         resp = client.post("/analyze", json=load_fixture(fixture_name))
         assert resp.status_code == 200
@@ -461,8 +468,8 @@ def test_defensive_escalation_on_unexpected_error(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(main_module, "parse_alert", _crash)
 
     ollama = _make_ollama_client(_TP_VERDICT)
-    vt, abuse = _make_enricher_clients()
-    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse))
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
 
     try:
         # raise_server_exceptions=False prevents TestClient from re-raising
