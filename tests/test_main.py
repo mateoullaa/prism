@@ -32,7 +32,15 @@ from fastapi.testclient import TestClient
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from main import _build_observables, app, get_pipeline  # noqa: E402
+from main import (  # noqa: E402
+    _build_case_description,
+    _build_key_factors,
+    _build_observables,
+    _build_severity_num,
+    _build_tags,
+    app,
+    get_pipeline,
+)
 from tools.reasoner import OllamaClient  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "data" / "sample_alerts"
@@ -720,3 +728,419 @@ class TestObservables:
         assert obs["is_public"] is False
         assert obs["sources"] == {}
         assert obs["reasons"] == ["No enrichment available for this IOC type"]
+
+
+# ---------------------------------------------------------------------------
+# Test 11: Tags — TRUE_POSITIVE + MITRE + network/public_attack fixture
+# ---------------------------------------------------------------------------
+
+
+def test_tags_true_positive_with_mitre(monkeypatch, tmp_path) -> None:
+    """firewall_block.json + _TP_VERDICT → tags list contains all expected values.
+
+    firewall_block.json produces:
+      alert_type       = "network"
+      nature_category  = "public_attack"
+
+    _TP_VERDICT has:
+      verdict = "TRUE_POSITIVE"
+      mitre   = {"id": "T1110", "name": "Brute Force"}
+
+    Expected tags (order-independent):
+      "true_positive", "public_attack", "network",
+      "mitre:T1110", "tactic:brute_force"
+    """
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+
+    ollama = _make_ollama_client(_TP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
+
+    try:
+        client = TestClient(app)
+        resp = client.post("/analyze", json=load_fixture("firewall_block.json"))
+
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert "tags" in body, "Response must contain a 'tags' key"
+        tags: list = body["tags"]
+
+        assert "true_positive" in tags, f"Expected 'true_positive' in tags: {tags}"
+        assert "public_attack" in tags, f"Expected 'public_attack' in tags: {tags}"
+        assert "network" in tags, f"Expected 'network' in tags: {tags}"
+        assert "mitre:T1110" in tags, f"Expected 'mitre:T1110' in tags: {tags}"
+        assert "tactic:brute_force" in tags, (
+            f"Expected 'tactic:brute_force' in tags: {tags}"
+        )
+
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+# ---------------------------------------------------------------------------
+# Test 12: Tags — FALSE_POSITIVE, no MITRE, windows_event fixture
+# ---------------------------------------------------------------------------
+
+
+def test_tags_false_positive_no_mitre(monkeypatch, tmp_path) -> None:
+    """windows_spp_error.json + _FP_VERDICT → tags list has FP + type, no MITRE tags.
+
+    windows_spp_error.json produces:
+      alert_type       = "windows_event"
+      nature_category  = "informational"
+
+    _FP_VERDICT has:
+      verdict = "FALSE_POSITIVE"
+      mitre   = None
+
+    Expected:
+      "false_positive" in tags
+      "windows_event" in tags
+      no tag starting with "mitre:" or "tactic:"
+    """
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+
+    ollama = _make_ollama_client(_FP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
+
+    try:
+        client = TestClient(app)
+        resp = client.post("/analyze", json=load_fixture("windows_spp_error.json"))
+
+        assert resp.status_code == 200
+        body = resp.json()
+
+        assert "tags" in body, "Response must contain a 'tags' key"
+        tags: list = body["tags"]
+
+        assert "false_positive" in tags, f"Expected 'false_positive' in tags: {tags}"
+        assert "windows_event" in tags, f"Expected 'windows_event' in tags: {tags}"
+
+        mitre_tags = [t for t in tags if t.startswith("mitre:") or t.startswith("tactic:")]
+        assert not mitre_tags, (
+            f"No MITRE/tactic tags expected when mitre=None, got: {mitre_tags}"
+        )
+
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+# ---------------------------------------------------------------------------
+# TestTags — unit tests for _build_tags()
+# ---------------------------------------------------------------------------
+
+
+class TestTags:
+    """Unit tests for the _build_tags() orchestration helper.
+
+    All tests call _build_tags() directly (no HTTP layer) so they are fast
+    and deterministic.
+    """
+
+    def test_true_positive_with_full_mitre(self) -> None:
+        """TRUE_POSITIVE + MITRE dict → five distinct tags produced."""
+        parsed = {
+            "verdict": {
+                "verdict": "TRUE_POSITIVE",
+                "mitre": {"id": "T1078", "name": "Valid Accounts"},
+            },
+            "nature_category": "internal_movement",
+            "alert_type": "ssh",
+        }
+        tags = _build_tags(parsed)
+        assert "true_positive" in tags
+        assert "internal_movement" in tags
+        assert "ssh" in tags
+        assert "mitre:T1078" in tags
+        assert "tactic:valid_accounts" in tags
+
+    def test_false_positive_no_mitre(self) -> None:
+        """FALSE_POSITIVE with mitre=None → no mitre/tactic tags."""
+        parsed = {
+            "verdict": {"verdict": "FALSE_POSITIVE", "mitre": None},
+            "nature_category": "informational",
+            "alert_type": "windows_event",
+        }
+        tags = _build_tags(parsed)
+        assert "false_positive" in tags
+        assert "informational" in tags
+        assert "windows_event" in tags
+        assert not any(t.startswith("mitre:") or t.startswith("tactic:") for t in tags)
+
+    def test_needs_review_fallback_for_unknown_verdict(self) -> None:
+        """Unknown verdict string → 'needs_review' tag (not a KeyError)."""
+        parsed = {
+            "verdict": {"verdict": "SOMETHING_UNEXPECTED", "mitre": None},
+            "nature_category": "unknown",
+            "alert_type": "unknown",
+        }
+        tags = _build_tags(parsed)
+        assert "needs_review" in tags
+
+    def test_missing_nature_category_skipped(self) -> None:
+        """Missing nature_category key → tag list does NOT include any nature tag."""
+        parsed = {
+            "verdict": {"verdict": "TRUE_POSITIVE", "mitre": None},
+            "alert_type": "network",
+            # no nature_category key
+        }
+        tags = _build_tags(parsed)
+        assert "true_positive" in tags
+        assert "network" in tags
+        nature_tags = {"public_attack", "internal_movement", "informational"}
+        assert not nature_tags.intersection(tags), (
+            f"No nature tag expected when key is absent, got: {tags}"
+        )
+
+    def test_empty_alert_type_skipped(self) -> None:
+        """Empty string alert_type → not added to tags."""
+        parsed = {
+            "verdict": {"verdict": "FALSE_POSITIVE", "mitre": None},
+            "alert_type": "",
+        }
+        tags = _build_tags(parsed)
+        assert "" not in tags
+
+    def test_missing_verdict_dict_returns_needs_review(self) -> None:
+        """Missing verdict key entirely → 'needs_review' tag, no crash."""
+        parsed = {"alert_type": "network"}
+        tags = _build_tags(parsed)
+        assert "needs_review" in tags
+
+    def test_malformed_parsed_returns_empty_list(self) -> None:
+        """Passing a non-dict (None) returns [] without raising."""
+        # _build_tags is defensive: catches all exceptions
+        tags = _build_tags(None)  # type: ignore[arg-type]
+        assert tags == []
+
+
+# ---------------------------------------------------------------------------
+# TestKeyFactors — unit tests for _build_key_factors()
+# ---------------------------------------------------------------------------
+
+
+class TestKeyFactors:
+    """Unit tests for the _build_key_factors() orchestration helper.
+
+    All tests call _build_key_factors() directly (no HTTP layer) so they are
+    fast and deterministic.
+    """
+
+    # ------------------------------------------------------------------
+    # Test A — two enriched malicious IPs with multiple providers
+    # ------------------------------------------------------------------
+
+    def test_two_malicious_ips_all_sources(self) -> None:
+        """Two malicious IPs with VT + AbuseIPDB → all provider strings produced.
+
+        Also checks rule_description, public_attack nature, and justification
+        extract are all present in the returned factors list.
+        """
+        parsed = {
+            "observables": [
+                {
+                    "value": "59.44.42.9",
+                    "verdict": "malicious",
+                    "sources": {
+                        "virustotal": {"malicious": 16},
+                        "abuseipdb": {"abuse_confidence_score": 100, "total_reports": 992},
+                    },
+                },
+                {
+                    "value": "1.2.3.4",
+                    "verdict": "malicious",
+                    "sources": {
+                        "virustotal": {"malicious": 3},
+                    },
+                },
+            ],
+            "rule_description": "Firewall rule 651 blocked the traffic",
+            "nature_category": "public_attack",
+            "verdict": {
+                "justification": (
+                    "External IP with high malicious reputation. "
+                    "Pattern matches brute-force."
+                )
+            },
+        }
+        factors = _build_key_factors(parsed)
+
+        assert "IP 59.44.42.9 flagged by VirusTotal (16 malicious detections)" in factors
+        assert (
+            "IP 59.44.42.9 flagged by AbuseIPDB (confidence 100, 992 reports)" in factors
+        )
+        assert "IP 1.2.3.4 flagged by VirusTotal (3 malicious detections)" in factors
+        assert "Firewall rule 651 blocked the traffic" in factors
+        assert "External IP targeting exposed asset" in factors
+        assert any(
+            "External IP with high malicious reputation" in f for f in factors
+        ), f"Expected justification extract in factors, got: {factors}"
+
+    # ------------------------------------------------------------------
+    # Test B — no enrichment, non-public-attack nature
+    # ------------------------------------------------------------------
+
+    def test_no_malicious_ips_informational(self) -> None:
+        """Clean observable + informational category → no flagged-by or public-attack factor.
+
+        rule_description must still be included; justification extract is added
+        but must not contain any enrichment-derived string.
+        """
+        parsed = {
+            "observables": [
+                {"value": "10.0.0.1", "verdict": "clean", "sources": {}},
+            ],
+            "rule_description": "Windows SPP service error",
+            "nature_category": "informational",
+            "verdict": {"justification": "No indicators of compromise detected."},
+        }
+        factors = _build_key_factors(parsed)
+
+        # No enrichment factors for any provider
+        assert not any("flagged by" in f for f in factors), (
+            f"No provider-flagged factor expected for a clean observable, got: {factors}"
+        )
+        # Rule description is always included when present
+        assert "Windows SPP service error" in factors
+        # Public-attack factor must be absent for informational nature
+        assert "External IP targeting exposed asset" not in factors, (
+            f"Public-attack factor must not appear for informational alerts: {factors}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TestCaseDescription — integration test for _build_case_description()
+# ---------------------------------------------------------------------------
+
+
+class TestCaseDescription:
+    """Integration test for _build_case_description() via the /analyze endpoint.
+
+    Uses firewall_block.json + _TP_VERDICT with enriched VT + AbuseIPDB data
+    for 59.44.42.9 (mirrors the mock setup from test_endpoint_observables_in_final_json).
+    """
+
+    def test_case_description_end_to_end(self, monkeypatch, tmp_path) -> None:
+        """firewall_block.json + TP verdict → case_description present and well-formed.
+
+        Asserts:
+        1. ``case_description`` key exists in the response body.
+        2. Contains the agent name from the fixture (``"agent-web-01"``).
+        3. Contains the malicious IP (``"59.44.42.9"``).
+        4. Contains ``"VirusTotal"`` (provider enrichment line).
+        5. Contains ``"AbuseIPDB"`` (provider enrichment line).
+        6. Contains ``"TRUE_POSITIVE"`` (verdict paragraph).
+        7. Contains ``"HIGH"`` (confidence in verdict paragraph).
+        8. Has at least 3 ``"\\n\\n"`` separators (4 paragraphs).
+        """
+        monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+
+        ollama = _make_ollama_client(_TP_VERDICT)
+
+        vt = MagicMock()
+        vt.query.return_value = {
+            "status": "ok",
+            "malicious": 16,
+            "suspicious": 4,
+            "reputation": -4,
+        }
+        abuse = MagicMock()
+        abuse.query.return_value = {
+            "status": "ok",
+            "abuse_confidence_score": 100,
+            "total_reports": 992,
+            "country_code": "CN",
+            "is_whitelisted": False,
+        }
+        otx = MagicMock()
+        otx.query.return_value = {
+            "status": "error",
+            "message": "Read timed out",
+        }
+
+        app.dependency_overrides[get_pipeline] = _pipeline_override(
+            ollama, (vt, abuse, otx)
+        )
+
+        try:
+            client = TestClient(app)
+            resp = client.post("/analyze", json=load_fixture("firewall_block.json"))
+
+            assert resp.status_code == 200
+            body = resp.json()
+
+            # 1. Key present
+            assert "case_description" in body, (
+                "Response must contain a 'case_description' key"
+            )
+
+            desc: str = body["case_description"]
+
+            # 2. Agent name from fixture
+            assert "agent-web-01" in desc, (
+                f"Expected agent name 'agent-web-01' in case_description: {desc!r}"
+            )
+
+            # 3. Malicious IP from fixture
+            assert "59.44.42.9" in desc, (
+                f"Expected IP '59.44.42.9' in case_description: {desc!r}"
+            )
+
+            # 4. VirusTotal enrichment mentioned
+            assert "VirusTotal" in desc, (
+                f"Expected 'VirusTotal' in case_description: {desc!r}"
+            )
+
+            # 5. AbuseIPDB enrichment mentioned
+            assert "AbuseIPDB" in desc, (
+                f"Expected 'AbuseIPDB' in case_description: {desc!r}"
+            )
+
+            # 6. Verdict value in paragraph 4
+            assert "TRUE_POSITIVE" in desc, (
+                f"Expected 'TRUE_POSITIVE' in case_description: {desc!r}"
+            )
+
+            # 7. Confidence level in paragraph 4
+            assert "HIGH" in desc, (
+                f"Expected 'HIGH' in case_description: {desc!r}"
+            )
+
+            # 8. Four paragraphs → at least 3 double-newline separators
+            assert desc.count("\n\n") >= 3, (
+                f"Expected at least 3 '\\n\\n' separators (4 paragraphs), "
+                f"got {desc.count(chr(10) + chr(10))}: {desc!r}"
+            )
+
+        finally:
+            app.dependency_overrides.pop(get_pipeline, None)
+
+
+# ---------------------------------------------------------------------------
+# TestSeverityNum — unit tests for _build_severity_num()
+# ---------------------------------------------------------------------------
+
+
+class TestSeverityNum:
+    """Unit tests for the _build_severity_num() orchestration helper.
+
+    All tests call _build_severity_num() directly (no HTTP layer) so they are
+    fast and deterministic.
+    """
+
+    def test_risk_1_is_low(self):
+        assert _build_severity_num({"verdict": {"risk_score": 1}}) == 1
+
+    def test_risk_5_is_medium(self):
+        assert _build_severity_num({"verdict": {"risk_score": 5}}) == 2
+
+    def test_risk_8_is_high(self):
+        assert _build_severity_num({"verdict": {"risk_score": 8}}) == 3
+
+    def test_risk_10_is_critical(self):
+        assert _build_severity_num({"verdict": {"risk_score": 10}}) == 4
+
+    def test_missing_verdict_defaults_medium(self):
+        assert _build_severity_num({}) == 2

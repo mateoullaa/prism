@@ -26,7 +26,9 @@ Design decisions:
 
 import logging
 import os
+import re
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import uvicorn
@@ -296,6 +298,341 @@ def _build_observables(parsed: dict) -> list:
     return observables
 
 
+# ---------------------------------------------------------------------------
+# Tag builder (orchestration helper — not a tool, not an endpoint)
+# ---------------------------------------------------------------------------
+
+_VERDICT_TAG_MAP: dict[str, str] = {
+    "TRUE_POSITIVE": "true_positive",
+    "FALSE_POSITIVE": "false_positive",
+}
+
+_NATURE_TAG_MAP: dict[str, str] = {
+    "public_attack": "public_attack",
+    "internal_movement": "internal_movement",
+    "informational": "informational",
+}
+
+
+def _build_tags(parsed: dict) -> list:
+    """Build a flat list of classification tags from the pipeline result.
+
+    Produces up to five tags derived from four independent sources:
+
+    1. **verdict** — LLM verdict string mapped to a lowercase tag.
+       ``"TRUE_POSITIVE"`` → ``"true_positive"``,
+       ``"FALSE_POSITIVE"`` → ``"false_positive"``,
+       anything else (including ``"NEEDS_REVIEW"``, missing, or error) →
+       ``"needs_review"``.
+
+    2. **nature_category** — orthogonal axis from the parser.
+       ``"public_attack"`` / ``"internal_movement"`` / ``"informational"``
+       are passed through unchanged.  Missing key is silently skipped.
+
+    3. **alert_type** — technical type from the parser (already lowercase,
+       e.g. ``"network"``, ``"windows_event"``).  Added as-is if present
+       and non-empty.
+
+    4. **mitre** — if ``parsed["verdict"]["mitre"]`` is a dict with both
+       ``"id"`` and ``"name"``, adds ``"mitre:<id>"`` (e.g. ``"mitre:T1110"``)
+       and ``"tactic:<name_snake_case>"`` (e.g. ``"tactic:brute_force"``).
+       ``None`` or missing: silently skipped.
+
+    Args:
+        parsed: The fully populated pipeline dict after all stages have run.
+                Must contain ``"verdict"`` (dict) and may contain
+                ``"nature_category"`` and ``"alert_type"``.
+
+    Returns:
+        List of lowercase tag strings, never raises.  Returns ``[]`` on any
+        unexpected error (defensive: a broken tag builder must never stall
+        the pipeline or lose the alert).
+    """
+    try:
+        tags: list[str] = []
+
+        # 1. Verdict tag
+        verdict_dict: dict = parsed.get("verdict") or {}
+        raw_verdict: str = verdict_dict.get("verdict", "") or ""
+        tags.append(_VERDICT_TAG_MAP.get(raw_verdict, "needs_review"))
+
+        # 2. Nature category tag (optional — skip if key is absent)
+        nature: str | None = parsed.get("nature_category")
+        if nature is not None:
+            tags.append(_NATURE_TAG_MAP.get(nature, "informational"))
+
+        # 3. Alert type tag (optional — skip if absent or empty)
+        alert_type: str | None = parsed.get("alert_type")
+        if alert_type and isinstance(alert_type, str):
+            tags.append(alert_type)
+
+        # 4. MITRE tags (optional — skip if mitre is None or malformed)
+        mitre = verdict_dict.get("mitre")
+        if isinstance(mitre, dict):
+            mitre_id: str | None = mitre.get("id")
+            mitre_name: str | None = mitre.get("name")
+            if mitre_id and mitre_name:
+                tags.append(f"mitre:{mitre_id}")
+                tags.append(f"tactic:{mitre_name.lower().replace(' ', '_')}")
+
+        return tags
+
+    except Exception:  # noqa: BLE001 — never propagate from tag builder
+        _logger.warning("_build_tags: unexpected error building tags", exc_info=True)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Key-factors builder (orchestration helper — not a tool, not an endpoint)
+# ---------------------------------------------------------------------------
+
+
+def _build_key_factors(parsed: dict) -> list:
+    """Build a human-readable list of key factors explaining the triage verdict.
+
+    Collects signal evidence from four sources in this order:
+
+    A. **Enriched malicious IPs** — one string per provider that detected the
+       IP as malicious, derived from ``parsed["observables"][*].sources``
+       (already filtered to ok/cached providers by ``_build_observables``).
+       Only observables whose ``verdict == "malicious"`` are considered.
+
+    B. **Rule description** — ``parsed["rule_description"]`` appended as-is
+       when it is a non-empty string (the parser already formats it).
+
+    C. **Nature category** — appends ``"External IP targeting exposed asset"``
+       only when ``parsed["nature_category"] == "public_attack"``.
+
+    D. **Justification extract** — the first sentence of the LLM justification
+       (split on ``". "`` or ``"."``).  If the first sentence is ≤ 100
+       characters it is used as-is; otherwise the first 15 words are taken.
+
+    Args:
+        parsed: The fully populated pipeline dict after all stages have run,
+                including ``"observables"`` (set by ``_build_observables``),
+                ``"rule_description"``, ``"nature_category"``, and
+                ``"verdict"`` (with ``"justification"``) keys.  All missing
+                keys are handled gracefully.
+
+    Returns:
+        List of human-readable factor strings.  Never raises; returns ``[]``
+        on any unexpected error (defensive: a broken key-factors builder must
+        never stall the pipeline or lose the alert).
+    """
+    try:
+        factors: list[str] = []
+
+        # A. Enriched malicious IPs (per observable, per provider)
+        for observable in parsed.get("observables", []):
+            if observable.get("verdict") != "malicious":
+                continue
+            ip: str = observable.get("value", "")
+            sources: dict = observable.get("sources", {})
+
+            vt: dict | None = sources.get("virustotal")
+            if vt and vt.get("malicious", 0) > 0:
+                factors.append(
+                    f"IP {ip} flagged by VirusTotal ({vt['malicious']} malicious detections)"
+                )
+
+            abuse: dict | None = sources.get("abuseipdb")
+            if abuse and abuse.get("abuse_confidence_score", 0) > 0:
+                factors.append(
+                    f"IP {ip} flagged by AbuseIPDB "
+                    f"(confidence {abuse['abuse_confidence_score']}, "
+                    f"{abuse.get('total_reports', 0)} reports)"
+                )
+
+            otx: dict | None = sources.get("otx")
+            if otx and otx.get("pulse_count", 0) > 0:
+                factors.append(
+                    f"IP {ip} flagged by OTX ({otx['pulse_count']} threat pulses)"
+                )
+
+        # B. Rule description (appended verbatim — already formatted by parser)
+        rule_desc: str | None = parsed.get("rule_description")
+        if rule_desc and isinstance(rule_desc, str):
+            factors.append(rule_desc)
+
+        # C. Nature category (public attack only)
+        nc: str | None = parsed.get("nature_category")
+        if nc == "public_attack":
+            factors.append("External IP targeting exposed asset")
+
+        # D. Justification extract (first sentence or first 15 words)
+        just: str = (parsed.get("verdict") or {}).get("justification", "") or ""
+        if just:
+            sentences = re.split(r"\.\s+|\.", just)
+            first = next((s.strip() for s in sentences if s.strip()), "")
+            if first:
+                if len(first) <= 100:
+                    factors.append(first)
+                else:
+                    factors.append(" ".join(first.split()[:15]))
+
+        return factors
+
+    except Exception:  # noqa: BLE001 — never propagate from key-factors builder
+        _logger.warning(
+            "_build_key_factors: unexpected error building key factors", exc_info=True
+        )
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Case-description builder (orchestration helper — not a tool, not an endpoint)
+# ---------------------------------------------------------------------------
+
+
+def _build_case_description(parsed: dict) -> str:
+    """Build a 4-paragraph case description (in Spanish) for the triage result.
+
+    Combines agent identity, current timestamp, rule context, enrichment
+    reputation data, the LLM justification, and the final verdict into a
+    single human-readable block suitable for case management notes.
+
+    Paragraphs (joined with double newlines):
+      1. Evento     — agent, timestamp, rule description, malicious IPs.
+      2. Enriquecimiento — per-provider reputation summary; OTX error notices.
+      3. Contexto LLM   — LLM justification verbatim.
+      4. Veredicto      — verdict, confidence, risk_score, next_action.
+
+    Args:
+        parsed: The fully populated pipeline dict after all stages have run,
+                including ``"observables"``, ``"enrichment"``, ``"verdict"``,
+                ``"agent_name"``, and ``"rule_description"`` keys.  All
+                missing keys are handled gracefully.
+
+    Returns:
+        Multi-paragraph string.  Returns ``""`` on any unexpected error
+        (defensive: a broken description builder must never stall the pipeline).
+    """
+    try:
+        agent: str = parsed.get("agent_name") or "agente desconocido"
+        timestamp: str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        rule_desc: str = parsed.get("rule_description") or "Sin descripción de regla."
+        p1: str = f"Se recibió una alerta de {agent} el {timestamp}. {rule_desc}"
+
+        malicious_values: list[str] = [
+            obs["value"]
+            for obs in parsed.get("observables", [])
+            if obs.get("verdict") == "malicious"
+        ]
+        if len(malicious_values) == 1:
+            p1 += f" Involucra la IP {malicious_values[0]}."
+        elif len(malicious_values) >= 2:
+            p1 += f" Involucra las IPs {', '.join(malicious_values)}."
+
+        malicious_obs: list = [
+            obs
+            for obs in parsed.get("observables", [])
+            if obs.get("verdict") == "malicious"
+        ]
+
+        if malicious_obs:
+            sentences: list[str] = []
+            for obs in malicious_obs:
+                ip: str = obs.get("value", "")
+                sources: dict = obs.get("sources", {})
+                provider_parts: list[str] = []
+
+                vt: dict = sources.get("virustotal") or {}
+                if vt.get("malicious", 0) > 0:
+                    provider_parts.append(
+                        f"VirusTotal: {vt['malicious']} engines maliciosos"
+                    )
+
+                abuse: dict = sources.get("abuseipdb") or {}
+                if abuse.get("abuse_confidence_score", 0) > 0:
+                    provider_parts.append(
+                        f"AbuseIPDB: confidence {abuse['abuse_confidence_score']}, "
+                        f"{abuse.get('total_reports', 0)} reportes"
+                    )
+
+                otx_src: dict = sources.get("otx") or {}
+                if otx_src.get("pulse_count", 0) > 0:
+                    provider_parts.append(f"OTX: {otx_src['pulse_count']} pulsos")
+
+                if provider_parts:
+                    sentences.append(
+                        f"La IP {ip} presenta reputación maliciosa: "
+                        f"{', '.join(provider_parts)}."
+                    )
+
+            enrichment: dict = parsed.get("enrichment", {})
+            for enrich_ip, ip_data in enrichment.items():
+                if isinstance(ip_data, dict):
+                    otx_enrich: dict = ip_data.get("otx") or {}
+                    if otx_enrich.get("status") == "error":
+                        sentences.append(
+                            f"OTX no disponible para {enrich_ip} "
+                            f"({otx_enrich.get('message', 'error')})."
+                        )
+
+            p2: str = (
+                " ".join(sentences)
+                if sentences
+                else "No se detectaron IPs con reputación maliciosa en fuentes externas."
+            )
+        else:
+            p2 = "No se detectaron IPs con reputación maliciosa en fuentes externas."
+
+        just: str = (
+            (parsed.get("verdict") or {}).get("justification")
+            or "Sin justificación disponible."
+        )
+        p3: str = just
+
+        v: dict = parsed.get("verdict") or {}
+        verdict_val: str = v.get("verdict", "DESCONOCIDO")
+        confidence: str = v.get("confidence", "N/A")
+        risk_score = v.get("risk_score", "N/A")
+        next_action: str = v.get("next_action") or "Sin acción recomendada."
+        p4: str = (
+            f"Veredicto: {verdict_val} (confidence: {confidence}, "
+            f"risk_score: {risk_score}). "
+            f"Acción recomendada: {next_action}"
+        )
+
+        return "\n\n".join([p1, p2, p3, p4])
+
+    except Exception:  # noqa: BLE001 — never propagate from case description builder
+        _logger.warning(
+            "_build_case_description: unexpected error building case description",
+            exc_info=True,
+        )
+        return ""
+
+
+# ---------------------------------------------------------------------------
+# Severity-number builder (orchestration helper — not a tool, not an endpoint)
+# ---------------------------------------------------------------------------
+
+
+def _build_severity_num(parsed: dict) -> int:
+    """Map risk_score to a TheHive severity integer (1–4).
+
+    TheHive 5 severity scale: 1=LOW, 2=MEDIUM, 3=HIGH, 4=CRITICAL.
+    Defaults to 2 (MEDIUM) on any error.
+    """
+    try:
+        risk = parsed.get("verdict", {}).get("risk_score", 5)
+        if risk is None:
+            risk = 5
+        risk = int(risk)
+        if risk <= 3:
+            return 1
+        elif risk <= 6:
+            return 2
+        elif risk <= 8:
+            return 3
+        else:
+            return 4
+    except Exception:
+        _logger.warning("_build_severity_num: unexpected error", exc_info=True)
+        return 2
+
+
 @app.post("/analyze")
 def analyze(
     payload: dict = Body(...),
@@ -335,6 +672,10 @@ def analyze(
         reason(parsed, client=deps["ollama_client"])
         route(parsed)
         parsed["observables"] = _build_observables(parsed)
+        parsed["tags"] = _build_tags(parsed)
+        parsed["key_factors"] = _build_key_factors(parsed)
+        parsed["case_description"] = _build_case_description(parsed)
+        parsed["severity_num"] = _build_severity_num(parsed)
         log_alert(parsed)
         return parsed
 
