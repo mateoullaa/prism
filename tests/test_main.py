@@ -15,6 +15,8 @@ Test map:
   7. test_malformed_body_returns_422 — JSON array body → 422
   8. test_defensive_escalation       — parse_alert patched to raise → 200 + create_case
   9. test_health                     — GET /health → 200 {"status": "ok"}
+ 10. test_endpoint_observables_in_final_json — firewall_block, observables in body,
+                                               observable.verdict independent of alert.verdict
 """
 
 import csv
@@ -30,7 +32,7 @@ from fastapi.testclient import TestClient
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from main import app, get_pipeline  # noqa: E402
+from main import _build_observables, app, get_pipeline  # noqa: E402
 from tools.reasoner import OllamaClient  # noqa: E402
 
 FIXTURES_DIR = REPO_ROOT / "data" / "sample_alerts"
@@ -498,3 +500,223 @@ def test_defensive_escalation_on_unexpected_error(monkeypatch, tmp_path) -> None
 
     finally:
         app.dependency_overrides.pop(get_pipeline, None)
+
+
+# ---------------------------------------------------------------------------
+# Test 10: End-to-end observables in final JSON — firewall_block.json
+# ---------------------------------------------------------------------------
+
+
+def test_endpoint_observables_in_final_json(monkeypatch, tmp_path) -> None:
+    """firewall_block.json (IP 59.44.42.9) → observables present in final JSON.
+
+    Validates that the /analyze endpoint embeds a populated ``observables``
+    list in its response body, and that the observable verdict is derived
+    independently from the enrichment data — not from the LLM output.
+
+    Mocks:
+    - Ollama → NEEDS_REVIEW (deliberately non-malicious)
+    - VT     → malicious=16, suspicious=4  (strong signal)
+    - Abuse  → score=100, reports=992      (strong signal)
+    - OTX    → error / Read timed out      (simulates production timeout)
+
+    # observable.verdict="malicious" while alert.verdict="NEEDS_REVIEW" → independently derived
+    """
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+
+    ollama = _make_ollama_client(_NEEDS_REVIEW_VERDICT)
+
+    vt = MagicMock()
+    vt.query.return_value = {
+        "status": "ok",
+        "malicious": 16,
+        "suspicious": 4,
+        "reputation": -4,
+    }
+    abuse = MagicMock()
+    abuse.query.return_value = {
+        "status": "ok",
+        "abuse_confidence_score": 100,
+        "total_reports": 992,
+        "country_code": "CN",
+        "is_whitelisted": False,
+    }
+    otx = MagicMock()
+    otx.query.return_value = {
+        "status": "error",
+        "message": "Read timed out",
+    }
+
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx))
+
+    try:
+        client = TestClient(app)
+        resp = client.post("/analyze", json=load_fixture("firewall_block.json"))
+
+        assert resp.status_code == 200
+        body = resp.json()
+
+        # observables key is present in the final JSON
+        assert "observables" in body
+
+        # exactly one external IP → one observable
+        assert len(body["observables"]) == 1
+
+        obs = body["observables"][0]
+
+        assert obs["type"] == "ip"
+        assert obs["value"] == "59.44.42.9"
+        assert obs["is_public"] is True
+
+        # verdict is derived from enrichment (2 strong signals), NOT from LLM
+        assert obs["verdict"] == "malicious"
+
+        # 2 strong signals (VT malicious=16≥5, AbuseIPDB score=100≥80 AND reports=992≥10)
+        assert obs["confidence"] == 95
+
+        assert isinstance(obs["sources"], dict)
+        assert "virustotal" in obs["sources"]   # VT ok → included in sources
+        assert "abuseipdb" in obs["sources"]    # AbuseIPDB ok → included in sources
+        assert "otx" not in obs["sources"]      # OTX error → excluded from sources
+
+        assert isinstance(obs["reasons"], list) and len(obs["reasons"]) >= 1
+        # OTX appears in reasons even though it is in error (as "unavailable")
+        assert any("OTX" in r for r in obs["reasons"])
+
+        # alert.verdict is from the LLM mock (NEEDS_REVIEW), independent of observable.verdict
+        # observable.verdict="malicious" while alert.verdict="NEEDS_REVIEW" → independently derived
+        assert body["verdict"]["verdict"] == "NEEDS_REVIEW"
+
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+# ---------------------------------------------------------------------------
+# TestObservables — unit tests for _build_observables()
+# ---------------------------------------------------------------------------
+
+
+class TestObservables:
+    """Unit tests for the _build_observables() orchestration helper.
+
+    All tests call _build_observables() directly (no HTTP layer) so they are
+    fast, deterministic, and require no network or server setup.
+    """
+
+    # ------------------------------------------------------------------
+    # Test A — IP with VT + AbuseIPDB ok (strong malicious, OTX error)
+    # ------------------------------------------------------------------
+
+    def test_malicious_ip_two_strong_signals(self) -> None:
+        """VT malicious>=5 + AbuseIPDB score>=80 → verdict=malicious, confidence=95.
+
+        OTX is in error status, so it must be absent from sources but present
+        in reasons as an 'unavailable' message.
+        """
+        parsed = {
+            "iocs": [{"value": "1.2.3.4", "type": "ip", "external": True}],
+            "enrichment": {
+                "1.2.3.4": {
+                    "virustotal": {
+                        "status": "ok",
+                        "malicious": 16,
+                        "suspicious": 4,
+                        "reputation": -4,
+                    },
+                    "abuseipdb": {
+                        "status": "ok",
+                        "abuse_confidence_score": 100,
+                        "total_reports": 992,
+                        "country_code": "CN",
+                        "is_whitelisted": False,
+                    },
+                    "otx": {"status": "error", "message": "timeout"},
+                }
+            },
+        }
+
+        observables = _build_observables(parsed)
+
+        assert len(observables) == 1
+        obs = observables[0]
+
+        assert obs["type"] == "ip"
+        assert obs["value"] == "1.2.3.4"
+        assert obs["is_public"] is True
+        assert obs["verdict"] == "malicious"
+        assert obs["confidence"] == 95, (
+            "Two strong signals (VT + AbuseIPDB) must yield confidence 95"
+        )
+
+        # VT and AbuseIPDB are ok → must appear in sources
+        assert "virustotal" in obs["sources"], "VT ok must be included in sources"
+        assert "abuseipdb" in obs["sources"], "AbuseIPDB ok must be included in sources"
+        # OTX is error → must be excluded from sources
+        assert "otx" not in obs["sources"], "OTX error must be excluded from sources"
+
+        assert len(obs["reasons"]) >= 2, (
+            "At least VT reason and OTX-unavailable reason expected"
+        )
+        assert any("OTX: unavailable" in r for r in obs["reasons"]), (
+            "OTX error must produce an 'OTX: unavailable' reason string"
+        )
+
+    # ------------------------------------------------------------------
+    # Test B — all providers in error, no signals at all
+    # ------------------------------------------------------------------
+
+    def test_all_providers_error_yields_unknown(self) -> None:
+        """When every provider returns error, verdict must be unknown, confidence 0.
+
+        sources must be empty (no ok/cached data).
+        reasons must mention at least one provider as unavailable.
+        """
+        parsed = {
+            "iocs": [{"value": "5.5.5.5", "type": "ip", "external": True}],
+            "enrichment": {
+                "5.5.5.5": {
+                    "virustotal": {"status": "error", "message": "timeout"},
+                    "abuseipdb": {"status": "error", "message": "timeout"},
+                    "otx": {"status": "error", "message": "timeout"},
+                }
+            },
+        }
+
+        observables = _build_observables(parsed)
+
+        assert len(observables) == 1
+        obs = observables[0]
+
+        assert obs["verdict"] == "unknown"
+        assert obs["confidence"] == 0
+        assert obs["sources"] == {}, (
+            "All providers in error → sources must be empty dict"
+        )
+        assert any("unavailable" in r for r in obs["reasons"]), (
+            "At least one reason must mention 'unavailable'"
+        )
+
+    # ------------------------------------------------------------------
+    # Test C — hash IOC with no enrichment entry
+    # ------------------------------------------------------------------
+
+    def test_hash_ioc_no_enrichment_entry(self) -> None:
+        """A hash IOC with no enrichment entry produces the 'no enrichment' sentinel.
+
+        is_public must reflect the IOC's external field (False for a hash).
+        sources and reasons must carry the safe fallback values.
+        """
+        parsed = {
+            "iocs": [{"value": "abc123", "type": "hash", "external": False}],
+            "enrichment": {},
+        }
+
+        observables = _build_observables(parsed)
+
+        assert len(observables) == 1
+        obs = observables[0]
+
+        assert obs["verdict"] == "unknown"
+        assert obs["is_public"] is False
+        assert obs["sources"] == {}
+        assert obs["reasons"] == ["No enrichment available for this IOC type"]

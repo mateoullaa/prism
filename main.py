@@ -123,6 +123,179 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+# ---------------------------------------------------------------------------
+# Observable builder (orchestration helper — not a tool, not an endpoint)
+# ---------------------------------------------------------------------------
+
+_OK_STATUSES: frozenset[str] = frozenset({"ok", "cached"})
+
+
+def _build_observables(parsed: dict) -> list:
+    """Build enriched observable metadata for each IOC in *parsed*.
+
+    Iterates ``parsed["iocs"]`` and, for each entry, produces a structured
+    dict with verdict, confidence, provider sources, and human-readable
+    reasons derived from the enrichment data already stored in
+    ``parsed["enrichment"]``.
+
+    Signal thresholds (identical to those used by tools/reasoner.py):
+      - VirusTotal: malicious >= 5 → strong signal
+      - AbuseIPDB : abuse_confidence_score >= 80 AND total_reports >= 10 → strong
+      - OTX       : pulse_count >= 1 → strong
+
+    Confidence mapping:
+      - 2+ strong signals → "malicious", confidence 95
+      - 1  strong signal  → "malicious", confidence 75
+      - weak signal only  → "suspicious", confidence 40
+      - no signal         → "unknown",  confidence 0
+
+    Args:
+        parsed: The fully populated pipeline dict produced by parse_alert,
+                enrich, reason, and route.  Must contain ``"iocs"`` (list)
+                and ``"enrichment"`` (dict) keys; missing keys are handled
+                gracefully.
+
+    Returns:
+        List of observable dicts, one per IOC.  Never raises; malformed IOCs
+        produce a safe fallback entry with ``verdict="unknown"``.
+    """
+    observables: list = []
+    iocs: list = parsed.get("iocs", [])
+    enrichment: dict = parsed.get("enrichment", {})
+
+    for ioc in iocs:
+        try:
+            value: str = ioc.get("value", "")
+            ioc_type: str = ioc.get("type", "unknown")
+            is_public: bool = ioc.get("external", False)
+
+            ioc_enrichment: dict | None = enrichment.get(value)
+
+            if ioc_enrichment is None:
+                # No enrichment entry: hash, CVE, domain not yet supported, etc.
+                observables.append(
+                    {
+                        "type": ioc_type,
+                        "value": value,
+                        "is_public": is_public,
+                        "verdict": "unknown",
+                        "sources": {},
+                        "confidence": 0,
+                        "reasons": ["No enrichment available for this IOC type"],
+                    }
+                )
+                continue
+
+            # Sources: providers with a successful (ok/cached) response only.
+            sources: dict = {
+                provider: data
+                for provider, data in ioc_enrichment.items()
+                if isinstance(data, dict) and data.get("status") in _OK_STATUSES
+            }
+
+            # Per-provider data extraction.
+            vt_data: dict = ioc_enrichment.get("virustotal", {}) or {}
+            abuse_data: dict = ioc_enrichment.get("abuseipdb", {}) or {}
+            otx_data: dict = ioc_enrichment.get("otx", {}) or {}
+
+            vt_status: str | None = vt_data.get("status")
+            abuse_status: str | None = abuse_data.get("status")
+            otx_status: str | None = otx_data.get("status")
+
+            vt_present: bool = vt_status in _OK_STATUSES
+            abuse_present: bool = abuse_status in _OK_STATUSES
+            otx_present: bool = otx_status in _OK_STATUSES
+
+            vt_malicious: int = int(vt_data.get("malicious", 0)) if vt_present else 0
+            abuse_score: int = (
+                int(abuse_data.get("abuse_confidence_score", 0)) if abuse_present else 0
+            )
+            abuse_reports: int = (
+                int(abuse_data.get("total_reports", 0)) if abuse_present else 0
+            )
+            otx_pulses: int = int(otx_data.get("pulse_count", 0)) if otx_present else 0
+
+            # Strong signals (same thresholds as reasoner.py).
+            vt_strong: bool = vt_present and vt_malicious >= 5
+            abuse_strong: bool = (
+                abuse_present and abuse_score >= 80 and abuse_reports >= 10
+            )
+            otx_strong: bool = otx_present and otx_pulses >= 1
+
+            # Weak signals: provider present and ok/cached but below threshold.
+            vt_weak: bool = vt_present and 0 < vt_malicious < 5
+            abuse_weak: bool = abuse_present and abuse_score > 0 and not abuse_strong
+
+            strong_count: int = sum([vt_strong, abuse_strong, otx_strong])
+
+            if strong_count >= 2:
+                verdict, confidence = "malicious", 95
+            elif strong_count == 1:
+                verdict, confidence = "malicious", 75
+            elif vt_weak or abuse_weak:
+                verdict, confidence = "suspicious", 40
+            else:
+                verdict, confidence = "unknown", 0
+
+            # Build reasons: one string per provider that has any status.
+            reasons: list[str] = []
+
+            if vt_status in _OK_STATUSES:
+                reasons.append(f"VirusTotal: {vt_malicious} malicious detections")
+            elif vt_status == "rate_limited":
+                reasons.append("VirusTotal: rate limited")
+            elif vt_status == "error":
+                reasons.append("VirusTotal: unavailable")
+            # "skipped" → omit (API key not configured; no signal value)
+
+            if abuse_status in _OK_STATUSES:
+                reasons.append(
+                    f"AbuseIPDB: confidence {abuse_score}, {abuse_reports} reports"
+                )
+            elif abuse_status == "rate_limited":
+                reasons.append("AbuseIPDB: rate limited")
+            elif abuse_status == "error":
+                reasons.append("AbuseIPDB: unavailable")
+
+            if otx_status in _OK_STATUSES:
+                reasons.append(f"OTX: {otx_pulses} threat pulses")
+            elif otx_status == "rate_limited":
+                reasons.append("OTX: rate limited")
+            elif otx_status == "error":
+                reasons.append("OTX: unavailable (timeout)")
+
+            observables.append(
+                {
+                    "type": ioc_type,
+                    "value": value,
+                    "is_public": is_public,
+                    "verdict": verdict,
+                    "sources": sources,
+                    "confidence": confidence,
+                    "reasons": reasons,
+                }
+            )
+
+        except Exception:  # noqa: BLE001 — never propagate from observable builder
+            _logger.warning(
+                "_build_observables: malformed IOC skipped", exc_info=True
+            )
+            ioc_safe: dict = ioc if isinstance(ioc, dict) else {}
+            observables.append(
+                {
+                    "type": ioc_safe.get("type", "unknown"),
+                    "value": ioc_safe.get("value", ""),
+                    "is_public": ioc_safe.get("external", False),
+                    "verdict": "unknown",
+                    "sources": {},
+                    "confidence": 0,
+                    "reasons": ["Malformed IOC"],
+                }
+            )
+
+    return observables
+
+
 @app.post("/analyze")
 def analyze(
     payload: dict = Body(...),
@@ -161,6 +334,7 @@ def analyze(
         enrich(parsed, clients=deps["enricher_clients"])
         reason(parsed, client=deps["ollama_client"])
         route(parsed)
+        parsed["observables"] = _build_observables(parsed)
         log_alert(parsed)
         return parsed
 

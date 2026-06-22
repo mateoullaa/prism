@@ -103,7 +103,12 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - `_build_default_clients()` now returns 3-tuple (vt, abuse, otx); shared session + TTLCache. Parallel queries max_workers=6.
   - Error cache: TTLCache(ttl=60s, maxsize=1000) per-instance in OTXClient; IPs that timeout/error skip HTTP for 60s. Validated live: 185.220.101.1, 80.82.77.139 timeout consistently; error cache cuts repeat cost to ~0ms.
   - TTLCache gains optional maxsize param (backward-compatible, default None).
-  - 225 total tests passing (was 221); zero regressions.
+  - OTX error cache: TTLCache(ttl=60s, maxsize=1000) per-instance; repeat timeouts skip HTTP. Validated live.
+  - TTLCache gains optional maxsize param (backward-compatible).
+- [x] **observables structure** — complete + validated (independent verdict path, tested)
+  - `_build_observables(parsed) -> list` in main.py: per-IOC verdict/confidence from enrichment only (independent of LLM verdict). Fields: type, value, is_public, verdict, sources, confidence, reasons.
+  - End-to-end test: obs.verdict="malicious" (confidence=95) with alert.verdict="NEEDS_REVIEW" — independence verified.
+  - 229 total tests passing (was 221); zero regressions.
   - Branch: v2-exploration; ready for merge review.
 
 ## v2 ideas (DO NOT implement now)
