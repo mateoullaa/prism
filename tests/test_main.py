@@ -1009,6 +1009,101 @@ class TestKeyFactors:
             f"Public-attack factor must not appear for informational alerts: {factors}"
         )
 
+    # ------------------------------------------------------------------
+    # Test C — multi-sentence justification → only first sentence
+    # ------------------------------------------------------------------
+
+    def test_justification_first_sentence_only(self) -> None:
+        """Multi-sentence justification → first sentence appended, no trailing fragment.
+
+        Old behaviour (15-word cap) could produce a garbage mid-sentence fragment
+        when the first sentence exceeded 15 words.  The new behaviour must yield
+        exactly the text up to (but not including) the first period.
+        """
+        long_first = (
+            "The source IP address has been identified as a known malicious actor "
+            "by multiple threat intelligence providers"
+        )
+        parsed = {
+            "observables": [],
+            "rule_description": None,
+            "nature_category": "public_attack",
+            "verdict": {
+                "justification": f"{long_first}. Secondary sentence follows. And a third."
+            },
+        }
+        factors = _build_key_factors(parsed)
+
+        # The first sentence must appear verbatim (no period, no trailing fragment)
+        assert long_first in factors, (
+            f"Expected first sentence in factors, got: {factors}"
+        )
+        # No second sentence must bleed in
+        assert not any("Secondary sentence" in f for f in factors), (
+            f"Second sentence must not appear in factors: {factors}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test D — long single sentence > 150 chars → truncated at last space
+    # ------------------------------------------------------------------
+
+    def test_justification_long_no_period_truncated_at_space(self) -> None:
+        """Justification with no period and length >150 chars → 150-char slice at last space.
+
+        Ensures there is no mid-word cut and the result is non-empty.
+        """
+        # 200-char sentence with no period — words are separated by spaces
+        sentence = (
+            "This alert was generated because the external scanning host repeatedly "
+            "probed multiple high-numbered ports in a pattern consistent with automated "
+            "reconnaissance tooling against the target subnet"
+        )
+        assert len(sentence) > 150, "Fixture must be longer than 150 chars"
+        parsed = {
+            "observables": [],
+            "rule_description": None,
+            "nature_category": "informational",
+            "verdict": {"justification": sentence},
+        }
+        factors = _build_key_factors(parsed)
+
+        assert len(factors) == 1, f"Expected exactly one factor, got: {factors}"
+        result = factors[0]
+        # Must not exceed 150 chars
+        assert len(result) <= 150, f"Result exceeds 150 chars: {result!r}"
+        # Must not end mid-word (next char after result, if any, must be a space or end)
+        remainder = sentence[len(result):]
+        assert remainder == "" or remainder[0] == " ", (
+            f"Mid-word cut detected. Result={result!r}, remainder starts={remainder[:10]!r}"
+        )
+        # Must be non-empty
+        assert result.strip(), "Result must not be empty"
+
+    # ------------------------------------------------------------------
+    # Test E — empty / missing justification → no empty fragment appended
+    # ------------------------------------------------------------------
+
+    def test_justification_empty_appends_nothing(self) -> None:
+        """Empty or missing justification must not append an empty string to factors."""
+        base = {
+            "observables": [],
+            "rule_description": "Rule 60602 matched",
+            "nature_category": "informational",
+        }
+
+        # Case 1: verdict key absent entirely
+        factors = _build_key_factors({**base})
+        assert "" not in factors, f"Empty string must not appear in factors: {factors}"
+        assert "Rule 60602 matched" in factors
+
+        # Case 2: justification is an empty string
+        factors = _build_key_factors({**base, "verdict": {"justification": ""}})
+        assert "" not in factors, f"Empty string must not appear in factors: {factors}"
+
+        # Case 3: justification is None
+        factors = _build_key_factors({**base, "verdict": {"justification": None}})
+        assert "" not in factors, f"Empty string must not appear in factors: {factors}"
+
 
 # ---------------------------------------------------------------------------
 # TestCaseDescription — integration test for _build_case_description()

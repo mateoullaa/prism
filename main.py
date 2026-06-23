@@ -459,16 +459,18 @@ def _build_key_factors(parsed: dict) -> list:
         if nc == "public_attack":
             factors.append("External IP targeting exposed asset")
 
-        # D. Justification extract (first sentence or first 15 words)
+        # D. Justification extract — first complete sentence (up to the first ".")
         just: str = (parsed.get("verdict") or {}).get("justification", "") or ""
         if just:
-            sentences = re.split(r"\.\s+|\.", just)
-            first = next((s.strip() for s in sentences if s.strip()), "")
-            if first:
-                if len(first) <= 100:
-                    factors.append(first)
-                else:
-                    factors.append(" ".join(first.split()[:15]))
+            first_sentence: str = just.split(".")[0].strip()
+            if not first_sentence or len(first_sentence) > 150:
+                # Empty (starts with "." or no text before first ".") OR the first
+                # sentence exceeds 150 chars: fall back to first 150 chars truncated
+                # at the last full space (no mid-word cut).
+                truncated: str = just[:150]
+                first_sentence = truncated.rsplit(" ", 1)[0] if " " in truncated else truncated
+            if first_sentence:
+                factors.append(first_sentence)
 
         return factors
 
