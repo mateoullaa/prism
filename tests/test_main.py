@@ -1017,8 +1017,10 @@ class TestKeyFactors:
         """Multi-sentence justification → first sentence appended, no trailing fragment.
 
         Old behaviour (15-word cap) could produce a garbage mid-sentence fragment
-        when the first sentence exceeded 15 words.  The new behaviour must yield
-        exactly the text up to (but not including) the first period.
+        when the first sentence exceeded 15 words.  The new behaviour splits on
+        sentence boundaries (. ! ? followed by whitespace), so the period is
+        retained as part of the returned sentence and subsequent sentences are
+        not included.
         """
         long_first = (
             "The source IP address has been identified as a known malicious actor "
@@ -1034,9 +1036,9 @@ class TestKeyFactors:
         }
         factors = _build_key_factors(parsed)
 
-        # The first sentence must appear verbatim (no period, no trailing fragment)
-        assert long_first in factors, (
-            f"Expected first sentence in factors, got: {factors}"
+        # The first sentence is retained with its trailing period (regex boundary split)
+        assert (long_first + ".") in factors, (
+            f"Expected first sentence (with period) in factors, got: {factors}"
         )
         # No second sentence must bleed in
         assert not any("Secondary sentence" in f for f in factors), (
@@ -1080,7 +1082,48 @@ class TestKeyFactors:
         assert result.strip(), "Result must not be empty"
 
     # ------------------------------------------------------------------
-    # Test E — empty / missing justification → no empty fragment appended
+    # Test E — regression: dotted IP in justification preserved intact
+    # ------------------------------------------------------------------
+
+    def test_justification_dotted_ip_preserved(self) -> None:
+        """Justification with a dotted IP yields the full IP in the factor.
+
+        Regression test for the bare-period split bug: ``just.split(".")[0]``
+        on ``"The IP address 59.44.42.9 is flagged..."`` produced the fragment
+        ``"The IP address 59"``.  The correct behaviour splits only on sentence
+        boundaries (. ! ? followed by whitespace), keeping ``59.44.42.9`` whole.
+        """
+        just = (
+            "The IP address 59.44.42.9 is flagged as malicious by VirusTotal. "
+            "Second sentence here."
+        )
+        parsed = {
+            "observables": [],
+            "rule_description": None,
+            "nature_category": "informational",
+            "verdict": {"justification": just},
+        }
+        factors = _build_key_factors(parsed)
+
+        expected_sentence = (
+            "The IP address 59.44.42.9 is flagged as malicious by VirusTotal."
+        )
+        # The complete first sentence (with the full dotted IP) must be in factors
+        assert expected_sentence in factors, (
+            f"Expected full first sentence with dotted IP in factors, got: {factors}"
+        )
+        # No truncated fragment ("The IP address 59" without the rest of the IP)
+        assert not any(
+            f.startswith("The IP address 59") and "59.44.42.9" not in f
+            for f in factors
+        ), f"Truncated IP fragment must not appear in factors: {factors}"
+        # The full dotted IP must appear verbatim in at least one factor
+        assert any("59.44.42.9" in f for f in factors), (
+            f"Full dotted IP '59.44.42.9' must be present in factors: {factors}"
+        )
+
+    # ------------------------------------------------------------------
+    # Test F — empty / missing justification → no empty fragment appended
     # ------------------------------------------------------------------
 
     def test_justification_empty_appends_nothing(self) -> None:
@@ -1111,24 +1154,31 @@ class TestKeyFactors:
 
 
 class TestCaseDescription:
-    """Integration test for _build_case_description() via the /analyze endpoint.
+    """Unit and integration tests for _build_case_description().
 
-    Uses firewall_block.json + _TP_VERDICT with enriched VT + AbuseIPDB data
-    for 59.44.42.9 (mirrors the mock setup from test_endpoint_observables_in_final_json).
+    Integration test uses firewall_block.json + _TP_VERDICT with enriched
+    VT + AbuseIPDB data for 59.44.42.9 (mirrors the mock setup from
+    test_endpoint_observables_in_final_json).
+    Unit tests call _build_case_description() directly.
     """
 
     def test_case_description_end_to_end(self, monkeypatch, tmp_path) -> None:
         """firewall_block.json + TP verdict → case_description present and well-formed.
 
         Asserts:
-        1. ``case_description`` key exists in the response body.
-        2. Contains the agent name from the fixture (``"agent-web-01"``).
-        3. Contains the malicious IP (``"59.44.42.9"``).
-        4. Contains ``"VirusTotal"`` (provider enrichment line).
-        5. Contains ``"AbuseIPDB"`` (provider enrichment line).
-        6. Contains ``"TRUE_POSITIVE"`` (verdict paragraph).
-        7. Contains ``"HIGH"`` (confidence in verdict paragraph).
-        8. Has at least 3 ``"\\n\\n"`` separators (4 paragraphs).
+        1.  ``case_description`` key exists in the response body.
+        2.  Contains the agent name from the fixture (``"agent-web-01"``).
+        3.  Contains the malicious IP (``"59.44.42.9"``).
+        4.  Contains ``"VirusTotal"`` (provider enrichment line).
+        5.  Contains ``"AbuseIPDB"`` (provider enrichment line).
+        6.  Contains ``"TRUE_POSITIVE"`` (verdict paragraph).
+        7.  Contains ``"HIGH"`` (confidence in verdict paragraph).
+        8.  Has at least 3 ``"\\n\\n"`` separators (4 paragraphs).
+        9.  English P1 opener: ``"An alert was received"``.
+        10. English IP label: ``"IP involved:"`` (single malicious IP).
+        11. English P2 enrichment phrase: ``"malicious reputation"``.
+        12. English P4 labels: ``"Verdict:"`` and ``"Recommended action:"``.
+        13. Output is ASCII-only: no mojibake characters (e.g. ``"Ã"``).
         """
         monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
 
@@ -1209,8 +1259,68 @@ class TestCaseDescription:
                 f"got {desc.count(chr(10) + chr(10))}: {desc!r}"
             )
 
+            # 9. English P1 opener
+            assert "An alert was received" in desc, (
+                f"Expected English opener 'An alert was received' in case_description: {desc!r}"
+            )
+
+            # 10. English IP label (single malicious IP → "IP involved:")
+            assert "IP involved:" in desc, (
+                f"Expected 'IP involved:' in case_description: {desc!r}"
+            )
+
+            # 11. English P2 enrichment phrase
+            assert "malicious reputation" in desc, (
+                f"Expected 'malicious reputation' in case_description: {desc!r}"
+            )
+
+            # 12. English P4 labels
+            assert "Verdict:" in desc, (
+                f"Expected 'Verdict:' in case_description: {desc!r}"
+            )
+            assert "Recommended action:" in desc, (
+                f"Expected 'Recommended action:' in case_description: {desc!r}"
+            )
+
+            # 13. ASCII-only — no mojibake (e.g. "Ã" from double-encoded UTF-8)
+            assert "Ã" not in desc, (
+                f"Mojibake character 'Ã' found in case_description: {desc!r}"
+            )
+            assert desc == desc.encode("ascii", "ignore").decode(), (
+                f"case_description contains non-ASCII characters: {desc!r}"
+            )
+
         finally:
             app.dependency_overrides.pop(get_pipeline, None)
+
+    def test_case_description_unit_english_fallbacks(self) -> None:
+        """Direct call with minimal parsed dict → English fallback strings used.
+
+        Verifies that missing agent, missing rule, no malicious IPs, no verdict
+        all produce English-only fallback text with no accented characters.
+        """
+        parsed: dict = {}
+        desc = _build_case_description(parsed)
+
+        assert "unknown agent" in desc, (
+            f"Expected 'unknown agent' fallback in case_description: {desc!r}"
+        )
+        assert "No rule description." in desc, (
+            f"Expected 'No rule description.' fallback: {desc!r}"
+        )
+        assert "No IPs with malicious reputation found in external sources." in desc, (
+            f"Expected no-malicious-IPs fallback: {desc!r}"
+        )
+        assert "No justification available." in desc, (
+            f"Expected 'No justification available.' fallback: {desc!r}"
+        )
+        assert "Recommended action:" in desc, (
+            f"Expected 'Recommended action:' label: {desc!r}"
+        )
+        # Strictly ASCII
+        assert desc == desc.encode("ascii", "ignore").decode(), (
+            f"Fallback case_description must be ASCII-only: {desc!r}"
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -403,9 +403,12 @@ def _build_key_factors(parsed: dict) -> list:
     C. **Nature category** — appends ``"External IP targeting exposed asset"``
        only when ``parsed["nature_category"] == "public_attack"``.
 
-    D. **Justification extract** — the first sentence of the LLM justification
-       (split on ``". "`` or ``"."``).  If the first sentence is ≤ 100
-       characters it is used as-is; otherwise the first 15 words are taken.
+    D. **Justification extract** — the first complete sentence of the LLM
+       justification, extracted by splitting on sentence-ending punctuation
+       (period, exclamation mark, or question mark) followed by whitespace or
+       end-of-string.  This preserves dotted IP addresses and decimal numbers
+       intact.  If the single extracted sentence exceeds 150 characters it is
+       truncated at the last word boundary within the first 150 characters.
 
     Args:
         parsed: The fully populated pipeline dict after all stages have run,
@@ -459,15 +462,15 @@ def _build_key_factors(parsed: dict) -> list:
         if nc == "public_attack":
             factors.append("External IP targeting exposed asset")
 
-        # D. Justification extract — first complete sentence (up to the first ".")
+        # D. Justification extract — first complete sentence using regex boundary.
+        # Sentence boundary = . ! or ? followed by whitespace OR end-of-string.
+        # This preserves dotted IPs and decimal numbers (no space after those dots).
         just: str = (parsed.get("verdict") or {}).get("justification", "") or ""
         if just:
-            first_sentence: str = just.split(".")[0].strip()
-            if not first_sentence or len(first_sentence) > 150:
-                # Empty (starts with "." or no text before first ".") OR the first
-                # sentence exceeds 150 chars: fall back to first 150 chars truncated
-                # at the last full space (no mid-word cut).
-                truncated: str = just[:150]
+            parts = re.split(r"(?<=[.!?])\s+", just.strip())
+            first_sentence: str = parts[0].strip() if parts else ""
+            if len(first_sentence) > 150:
+                truncated: str = first_sentence[:150]
                 first_sentence = truncated.rsplit(" ", 1)[0] if " " in truncated else truncated
             if first_sentence:
                 factors.append(first_sentence)
@@ -487,17 +490,18 @@ def _build_key_factors(parsed: dict) -> list:
 
 
 def _build_case_description(parsed: dict) -> str:
-    """Build a 4-paragraph case description (in Spanish) for the triage result.
+    """Build a 4-paragraph case description in English for the triage result.
 
-    Combines agent identity, current timestamp, rule context, enrichment
+    Combines agent identity, current UTC timestamp, rule context, enrichment
     reputation data, the LLM justification, and the final verdict into a
     single human-readable block suitable for case management notes.
+    All text is ASCII-only to prevent encoding issues in downstream systems.
 
     Paragraphs (joined with double newlines):
-      1. Evento     — agent, timestamp, rule description, malicious IPs.
-      2. Enriquecimiento — per-provider reputation summary; OTX error notices.
-      3. Contexto LLM   — LLM justification verbatim.
-      4. Veredicto      — verdict, confidence, risk_score, next_action.
+      1. Event      -- agent, timestamp, rule description, malicious IPs.
+      2. Enrichment -- per-provider reputation summary; OTX error notices.
+      3. Analysis   -- LLM justification verbatim.
+      4. Verdict    -- verdict, confidence, risk_score, next_action.
 
     Args:
         parsed: The fully populated pipeline dict after all stages have run,
@@ -510,10 +514,10 @@ def _build_case_description(parsed: dict) -> str:
         (defensive: a broken description builder must never stall the pipeline).
     """
     try:
-        agent: str = parsed.get("agent_name") or "agente desconocido"
+        agent: str = parsed.get("agent_name") or "unknown agent"
         timestamp: str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        rule_desc: str = parsed.get("rule_description") or "Sin descripción de regla."
-        p1: str = f"Se recibió una alerta de {agent} el {timestamp}. {rule_desc}"
+        rule_desc: str = parsed.get("rule_description") or "No rule description."
+        p1: str = f"An alert was received from {agent} on {timestamp}. {rule_desc}"
 
         malicious_values: list[str] = [
             obs["value"]
@@ -521,9 +525,9 @@ def _build_case_description(parsed: dict) -> str:
             if obs.get("verdict") == "malicious"
         ]
         if len(malicious_values) == 1:
-            p1 += f" Involucra la IP {malicious_values[0]}."
+            p1 += f" IP involved: {malicious_values[0]}."
         elif len(malicious_values) >= 2:
-            p1 += f" Involucra las IPs {', '.join(malicious_values)}."
+            p1 += f" IPs involved: {', '.join(malicious_values)}."
 
         malicious_obs: list = [
             obs
@@ -541,23 +545,23 @@ def _build_case_description(parsed: dict) -> str:
                 vt: dict = sources.get("virustotal") or {}
                 if vt.get("malicious", 0) > 0:
                     provider_parts.append(
-                        f"VirusTotal: {vt['malicious']} engines maliciosos"
+                        f"VirusTotal: {vt['malicious']} malicious engines"
                     )
 
                 abuse: dict = sources.get("abuseipdb") or {}
                 if abuse.get("abuse_confidence_score", 0) > 0:
                     provider_parts.append(
                         f"AbuseIPDB: confidence {abuse['abuse_confidence_score']}, "
-                        f"{abuse.get('total_reports', 0)} reportes"
+                        f"{abuse.get('total_reports', 0)} reports"
                     )
 
                 otx_src: dict = sources.get("otx") or {}
                 if otx_src.get("pulse_count", 0) > 0:
-                    provider_parts.append(f"OTX: {otx_src['pulse_count']} pulsos")
+                    provider_parts.append(f"OTX: {otx_src['pulse_count']} pulses")
 
                 if provider_parts:
                     sentences.append(
-                        f"La IP {ip} presenta reputación maliciosa: "
+                        f"IP {ip} has malicious reputation: "
                         f"{', '.join(provider_parts)}."
                     )
 
@@ -567,33 +571,33 @@ def _build_case_description(parsed: dict) -> str:
                     otx_enrich: dict = ip_data.get("otx") or {}
                     if otx_enrich.get("status") == "error":
                         sentences.append(
-                            f"OTX no disponible para {enrich_ip} "
+                            f"OTX unavailable for {enrich_ip} "
                             f"({otx_enrich.get('message', 'error')})."
                         )
 
             p2: str = (
                 " ".join(sentences)
                 if sentences
-                else "No se detectaron IPs con reputación maliciosa en fuentes externas."
+                else "No IPs with malicious reputation found in external sources."
             )
         else:
-            p2 = "No se detectaron IPs con reputación maliciosa en fuentes externas."
+            p2 = "No IPs with malicious reputation found in external sources."
 
         just: str = (
             (parsed.get("verdict") or {}).get("justification")
-            or "Sin justificación disponible."
+            or "No justification available."
         )
         p3: str = just
 
         v: dict = parsed.get("verdict") or {}
-        verdict_val: str = v.get("verdict", "DESCONOCIDO")
+        verdict_val: str = v.get("verdict", "UNKNOWN")
         confidence: str = v.get("confidence", "N/A")
         risk_score = v.get("risk_score", "N/A")
-        next_action: str = v.get("next_action") or "Sin acción recomendada."
+        next_action: str = v.get("next_action") or "No action recommended."
         p4: str = (
-            f"Veredicto: {verdict_val} (confidence: {confidence}, "
+            f"Verdict: {verdict_val} (confidence: {confidence}, "
             f"risk_score: {risk_score}). "
-            f"Acción recomendada: {next_action}"
+            f"Recommended action: {next_action}"
         )
 
         return "\n\n".join([p1, p2, p3, p4])
