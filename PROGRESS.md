@@ -96,16 +96,21 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 
 ## v2 Exploration — Branch `v2-exploration`
 
-[x] **v2-exploration COMPLETE & VALIDATED**
+[x] **v2-exploration COMPLETE & READY FOR SHUFFLE INTEGRATION**
   - OTX: error cache implemented, timeout raised 8s→15s (OTX_TIMEOUT env) after 2026-06-22 live audit found 8s too tight for ~45KB payloads (outliers >13.6s)
   - observables: independent verdict, sources, confidence
   - tags: from verdict + nature + type + mitre
-  - key_factors: from enrichment + rule + LLM
+  - key_factors: from enrichment + rule + LLM; truncation fixed (first complete sentence, no mid-word cuts)
   - case_description: 4-paragraph Spanish narrative
   - severity_num: 1–4 mapping (TheHive 5)
   - DEFERRED to v2.2: correlation_summary, full_description
-  - Live audit (2026-06-22) via FastAPI TestClient: 7 fixtures, 14 live calls, all status=ok, v2 contract validated. Known-FP suppression confirmed (windows_spp_error/grouped → FALSE_POSITIVE/discard). Known follow-ups: key_factors contain truncated fragments; MITRE mapping returns None even on TRUE_POSITIVE; minor risk_score drift (1→2) on windows_spp_grouped under temperature=0.
+  - Live audit (2026-06-22) via FastAPI TestClient: 7 fixtures, 14 live calls, all status=ok, v2 contract validated. Known-FP suppression confirmed (windows_spp_error/grouped → FALSE_POSITIVE/discard).
   - 246 tests passing
+
+## Follow-up items (post-Shuffle, v2.1)
+
+- [ ] MITRE mapping: reasoner always returns null even on TRUE_POSITIVE. Requires prompt enhancement to extract ATT&CK techniques from alert context.
+- [ ] risk_score determinism: windows_spp_grouped shows minor drift (1→2) with temperature=0. Investigate LLM sampling variance or numeric coercion.
 
 ## v2 ideas (DO NOT implement now)
 
