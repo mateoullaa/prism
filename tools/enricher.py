@@ -303,13 +303,17 @@ class OTXClient:
         api_key: str,
         rate_limiter: RateLimiter,
         cache: TTLCache,
-        timeout: float = 8.0,
+        timeout: float | None = None,
     ) -> None:
         self._session = session
         self._api_key = api_key
         self._rate_limiter = rate_limiter
         self._cache = cache
-        self._timeout = timeout
+        # When timeout is not explicitly injected (e.g. production path via
+        # _build_default_clients), resolve from env so ops can tune without
+        # touching code.  Explicit injection (tests, custom callers) takes
+        # precedence.
+        self._timeout = float(os.getenv("OTX_TIMEOUT", "15.0")) if timeout is None else timeout
         # Private per-instance error cache: caches transient failures for 60 s
         # so that repeated calls for the same broken IP skip the HTTP round-trip.
         self._error_cache = TTLCache(ttl=60.0, maxsize=1000)
