@@ -96,9 +96,15 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 
 ## v2 Exploration — Branch `v2-exploration`
 
-[x] **v2-exploration complete** — OTX (error cache), observables, tags, key_factors, case_description, severity_num mapping. 246 tests. Ready for Shuffle integration.
-- [ ] correlation_summary (deferred to RAG implementation — v2.2)
-- [ ] full_description (deferred until correlation_summary exists — v2.2)
+[x] **v2-exploration COMPLETE & VALIDATED**
+  - OTX: error cache implemented, timeout=8s validated by measurement
+  - observables: independent verdict, sources, confidence
+  - tags: from verdict + nature + type + mitre
+  - key_factors: from enrichment + rule + LLM
+  - case_description: 4-paragraph Spanish narrative
+  - severity_num: 1–4 mapping (TheHive 5)
+  - DEFERRED to v2.2: correlation_summary, full_description
+  - 246 tests passing
 
 ## v2 ideas (DO NOT implement now)
 
