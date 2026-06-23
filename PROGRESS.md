@@ -96,20 +96,9 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 
 ## v2 Exploration — Branch `v2-exploration`
 
-- [x] **Item 1: OTX (AlienVault) enrichment source** — COMPLETE & TESTED + error cache (TTL 60s)
-  - OTXClient mirrors VirusTotal/AbuseIPDB pattern. Endpoint: GET v1/indicators/IPv4/{ip}/general. Header: X-OTX-API-KEY.
-  - Normalizes pulse_count (from pulse_info.count) + reputation; statuses ok|cached|rate_limited|skipped|error.
-  - RateLimiter bucket: 60 req/min (capacity 60 / 60s). Reasoner threshold: _OTX_PULSE_THRESHOLD=1 (pulse_count≥1 → HIGH RISK).
-  - `_build_default_clients()` now returns 3-tuple (vt, abuse, otx); shared session + TTLCache. Parallel queries max_workers=6.
-  - Error cache: TTLCache(ttl=60s, maxsize=1000) per-instance in OTXClient; IPs that timeout/error skip HTTP for 60s. Validated live: 185.220.101.1, 80.82.77.139 timeout consistently; error cache cuts repeat cost to ~0ms.
-  - TTLCache gains optional maxsize param (backward-compatible, default None).
-  - OTX error cache: TTLCache(ttl=60s, maxsize=1000) per-instance; repeat timeouts skip HTTP. Validated live.
-  - TTLCache gains optional maxsize param (backward-compatible).
-- [x] **observables structure** — complete + validated (independent verdict path, tested)
-  - `_build_observables(parsed) -> list` in main.py: per-IOC verdict/confidence from enrichment only (independent of LLM verdict). Fields: type, value, is_public, verdict, sources, confidence, reasons.
-  - End-to-end test: obs.verdict="malicious" (confidence=95) with alert.verdict="NEEDS_REVIEW" — independence verified.
-  - 229 total tests passing (was 221); zero regressions.
-  - Branch: v2-exploration; ready for merge review.
+[x] **v2-exploration complete** — OTX (error cache), observables, tags, key_factors, case_description, severity_num mapping. 246 tests. Ready for Shuffle integration.
+- [ ] correlation_summary (deferred to RAG implementation — v2.2)
+- [ ] full_description (deferred until correlation_summary exists — v2.2)
 
 ## v2 ideas (DO NOT implement now)
 
