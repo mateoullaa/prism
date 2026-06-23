@@ -102,6 +102,7 @@ def _validate_contract(resp_json: dict) -> None:  # noqa: PLR0912,C901
         "tags",
         "key_factors",
         "case_description",
+        "full_description",
         "severity_num",
     )
     for key in _required_top_keys:
@@ -186,7 +187,21 @@ def _validate_contract(resp_json: dict) -> None:  # noqa: PLR0912,C901
     )
 
     # ------------------------------------------------------------------
-    # 6. severity_num — int in 1..4
+    # 6. full_description — alias for case_description (non-empty string)
+    # ------------------------------------------------------------------
+    fd: Any = resp_json["full_description"]
+    assert isinstance(fd, str), (
+        f"'full_description' must be str, got {type(fd).__name__}"
+    )
+    assert fd.strip(), (
+        "'full_description' must be non-empty (after strip)"
+    )
+    assert fd == resp_json["case_description"], (
+        "'full_description' must equal 'case_description' (alias, v2.2 will extend it)"
+    )
+
+    # ------------------------------------------------------------------
+    # 7. severity_num — int in 1..4
     # ------------------------------------------------------------------
     sn: Any = resp_json["severity_num"]
     assert isinstance(sn, int), (
@@ -197,7 +212,7 @@ def _validate_contract(resp_json: dict) -> None:  # noqa: PLR0912,C901
     )
 
     # ------------------------------------------------------------------
-    # 7. verdict — dict with contract sub-fields
+    # 8. verdict — dict with contract sub-fields
     # ------------------------------------------------------------------
     v_raw: Any = resp_json["verdict"]
     assert isinstance(v_raw, dict), (

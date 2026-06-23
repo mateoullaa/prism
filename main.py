@@ -681,6 +681,7 @@ def analyze(
         parsed["tags"] = _build_tags(parsed)
         parsed["key_factors"] = _build_key_factors(parsed)
         parsed["case_description"] = _build_case_description(parsed)
+        parsed["full_description"] = parsed.get("case_description", "")
         parsed["severity_num"] = _build_severity_num(parsed)
         log_alert(parsed)
         return parsed
