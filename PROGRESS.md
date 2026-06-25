@@ -66,16 +66,15 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] `workflows/main.md`
   - [x] `requirements.txt` updated: `httpx>=0.27` (TestClient/Starlette clean-clone dependency)
   - [x] 189 total tests passing (zero regressions)
-- [ ] **7. Shuffle integration** — coordinate with the SOC team
+- [x] **7. Shuffle integration** — end-to-end pipeline validated (TRUE_POSITIVE/NEEDS_REVIEW create cases; FALSE_POSITIVE discards to CSV audit log only)
 
 ## Blocked / waiting
 
-- Own SSH credentials for the server (request a personal account; do not use a shared user).
-- Live prompt iteration: all 6 fixtures validated live (2026-06-21). All 6 now return status=ok — the 2 that fell to fallback (vulnerability.json, windows_logon.json) were fixed by defaulting risk_score=5 for NEEDS_REVIEW with absent score. Enrichment interpretation rules verified live (malicious-IP alert flips to TRUE_POSITIVE as intended).
+_None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-Build item 7 (Shuffle integration — coordinate with SOC team on outbound HTTP POST contract and endpoint details).
+**MVP v1 COMPLETE.** Next: v2.1 items (MITRE mapping determinism, risk_score variance investigation) or start v2 RAG phase (runtime learning with ChromaDB + embeddings).
 
 ## Technical debt / pending (post-sanitization)
 
@@ -105,7 +104,7 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - severity_num: 1–4 mapping (TheHive 5)
   - DEFERRED to v2.2: correlation_summary, full_description
   - Live audit (2026-06-22) via FastAPI TestClient: 7 fixtures, 14 live calls, all status=ok, v2 contract validated. Known-FP suppression confirmed (windows_spp_error/grouped → FALSE_POSITIVE/discard).
-  - 246 tests passing
+  - 253 tests passing
 
 ## Follow-up items (post-Shuffle, v2.1)
 
@@ -115,6 +114,6 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 ## v2 ideas (DO NOT implement now)
 
 - Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
-- Direct case creation in TheHive.
+- [x] Direct case creation in TheHive — implemented via Execute Python node in Shuffle (POST /api/v1/case directly, bypasses Shuffle's broken Create case node).
 - Automatic FP filtering based on real v1 metrics.
 - Visualizations (matplotlib) / metrics dashboard.

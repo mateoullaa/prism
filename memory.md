@@ -36,6 +36,7 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Shodan discarded (paid). OTX → v2 candidate.
 - [2026-06] Project language is ENGLISH: all code, comments, docstrings, `.md` docs, and commit
   messages are written in English even when the user's prompts/discussion are in Spanish.
+- [2026-06-25] TheHive case creation via "Execute Python" node in Shuffle (not the native "Create case" node) — workaround for Shuffle variable interpolation bug.
 
 ## Technical learnings
 - [2026-06] Enrichment interpretation rules added to reasoner prompt (not code): qwen2.5:3b was ignoring strong enrichment signals (e.g., AbuseIPDB score=100, VT malicious=16) and returning NEEDS_REVIEW. Thresholds now explicit in prompt (score≥80 + reports≥10 → TRUE_POSITIVE; VT malicious≥5 → TRUE_POSITIVE).
@@ -65,6 +66,8 @@ Format: `[date] category — learning / decision`.
 - [2026-06-22] v2-exploration COMPLETE: OTX error cache (TTL 60s), observables with independent verdict from enrichment, tags from verdict+nature+type+mitre, key_factors from enrichment+rule+LLM, case_description 4-paragraph English ASCII narrative (no accents, mojibake-safe), severity_num 1–4 mapping (TheHive 5 compatible). **DEFERRED TO v2.2 (RAG phase):** correlation_summary (requires alert history + embeddings), full_description (concatenation pending correlation). All 246 tests passing. Ready for Shuffle workflow integration with Rodri.
 - [2026-06-22] OTX timeout validation: 10 measurements show normal latency 1–2s (9/10 requests), 1 outlier 60s server-side hang (10%). Timeout=8s correct — covers normal case 4x + cuts hang before 60s. Error cache (TTL 60s) defends against repeated timeouts. No code changes needed. **(SUPERSEDED 2026-06-22: 8s insufficient for ~45KB payloads in live audit; raised to 15s.)**
 - [2026-06-22] OTX timeout audit (live TestClient /analyze over 7 fixtures): 8s insufficient for ~45KB payloads (outliers >13.6s observed; 100% timeout on live public-IP lookups). OTX reachable (HTTP 200) but latency variable 1.5–13.6s due to endpoint returning large bodies for IPs with many pulses. Aligned with Rodri: timeout 8s→15s, configurable via OTX_TIMEOUT env var. VirusTotal + AbuseIPDB unaffected; carried verdicts.
+- [2026-06-25] Shuffle bug: "Create case" node does not interpolate Jinja/expression variables → replaced with "Execute Python" node that POSTs directly to TheHive /api/v1/case. All three verdict paths (TRUE_POSITIVE, NEEDS_REVIEW, FALSE_POSITIVE) confirmed working end-to-end. Prism deployed at 192.168.11.105:8000.
+- [2026-06-25] MVP v1 COMPLETE: end-to-end pipeline validated in production (Shuffle → Prism 192.168.11.105:8000 → TheHive). FALSE_POSITIVE discards are CSV-only (no TheHive entry); TRUE_POSITIVE and NEEDS_REVIEW create cases/alerts with observables. 253 tests passing, 0 regressions.
 
 ## Resolved errors
 - [2026-06-21] SSH hallucination in firewall_block alerts: few-shot example in _PROMPT_PREFIX seeded SSH vocabulary into model attention. Fixed by domain-neutral example with mitre=null. 5/5 live runs clean. 190 tests passing.
