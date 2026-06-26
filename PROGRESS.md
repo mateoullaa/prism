@@ -122,6 +122,13 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 - [x] risk_score determinism: fixed via verdict-range enforcement in Python (_validate_verdict()). FP→1, TP→[8,10], NR→unchanged. Root cause: BLAS float non-determinism even at temperature=0. 282 tests passing.
   - Live validation (2026-06-26): 3/3 fixtures confirmed correct. Two additional bugs found and fixed: (a) _evaluate_mitre() did not check is_known_fp_candidate — added guard (return None if FP candidate); (b) FP guardrail left risk_score=1 after downgrading to NEEDS_REVIEW — added reset to 5 in guardrail block. Tests added: test_known_fp_candidate_returns_none, test_non_fp_candidate_windows_event_returns_T1078, test_build_prompt_injects_null_mitre_for_known_fp_candidate, test_reason_fp_guardrail_downgrades_medium_confidence (updated).
 
+[x] **Docker deployment — COMPLETE & VALIDATED**
+  - Dockerfile: python:3.12-slim, prod dependencies only (pytest excluded)
+  - docker-compose.yml: port 8000, restart unless-stopped, volumes para metrics/ y config/
+  - Ollama connectivity: host-gateway:host-gateway → http://host-gateway:11434
+  - .dockerignore: excluye .venv/, tests/, .env, .git/
+  - Validado end-to-end desde Shuffle: Apache TRUE_POSITIVE → TheHive caso + observable ✅
+
 ## v2 ideas (DO NOT implement now)
 
 - Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
