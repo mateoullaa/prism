@@ -1,0 +1,15 @@
+services:
+  prism:
+    build: .
+    container_name: prism
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    env_file: .env
+    extra_hosts:
+      - "host-gateway:host-gateway"
+    volumes:
+      - ./metrics:/app/metrics
+      - ./config:/app/config
+    environment:
+      OLLAMA_HOST: http://host-gateway:11434
