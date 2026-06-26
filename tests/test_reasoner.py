@@ -20,6 +20,7 @@ sys.path.insert(0, str(REPO_ROOT))
 from tools.reasoner import (  # noqa: E402
     OllamaClient,
     _evaluate_enrichment,
+    _evaluate_mitre,
     _parse_llm_json,
     _validate_verdict,
     build_prompt,
@@ -82,7 +83,7 @@ VALID_VERDICT_JSON = {
     ),
     "mitre": {"id": "T1110", "name": "Brute Force"},
     "next_action": "Block source IP at perimeter firewall and investigate targeted account.",
-    "risk_score": 7,
+    "risk_score": 9,
 }
 
 
@@ -107,7 +108,7 @@ def test_reason_ok_response_returns_validated_verdict():
     assert result["reasoner_meta"]["status"] == "ok"
     assert result["verdict"]["verdict"] == "TRUE_POSITIVE"
     assert result["verdict"]["confidence"] == "HIGH"
-    assert result["verdict"]["risk_score"] == 7
+    assert result["verdict"]["risk_score"] == 9
     assert isinstance(result["reasoner_meta"]["latency_ms"], int)
     assert result["reasoner_meta"]["model"] == "qwen2.5:3b"
 
@@ -217,8 +218,15 @@ def test_validate_verdict_normalizes_lowercase_verdict_and_confidence():
 
 
 def test_validate_verdict_normalizes_string_risk_score_seven():
-    """risk_score as string '7' is coerced to int 7."""
-    obj = {**VALID_VERDICT_JSON, "risk_score": "7"}
+    """risk_score as string '7' is coerced to int — uses NEEDS_REVIEW to isolate coercion from verdict-range clamping."""
+    obj = {
+        "verdict": "NEEDS_REVIEW",
+        "confidence": "LOW",
+        "justification": "Insufficient signals.",
+        "mitre": None,
+        "next_action": "Escalate for manual review.",
+        "risk_score": "7",
+    }
     result = _validate_verdict(obj)
     assert result is not None
     assert result["risk_score"] == 7
@@ -234,8 +242,15 @@ def test_validate_verdict_clamps_risk_score_above_10():
 
 
 def test_validate_verdict_clamps_risk_score_below_1():
-    """risk_score of -3 is clamped up to 1."""
-    obj = {**VALID_VERDICT_JSON, "risk_score": -3}
+    """risk_score of -3 is clamped up to 1 — uses NEEDS_REVIEW to isolate global lower-bound clamping from verdict-range enforcement."""
+    obj = {
+        "verdict": "NEEDS_REVIEW",
+        "confidence": "LOW",
+        "justification": "Insufficient signals.",
+        "mitre": None,
+        "next_action": "Escalate for manual review.",
+        "risk_score": -3,
+    }
     result = _validate_verdict(obj)
     assert result is not None
     assert result["risk_score"] == 1
@@ -256,6 +271,36 @@ def test_validate_verdict_normalizes_mitre_wrong_type_to_none():
     result = _validate_verdict(obj)
     assert result is not None
     assert result["mitre"] is None
+
+
+def test_validate_verdict_fp_risk_score_is_always_1():
+    """FALSE_POSITIVE risk_score is forced to 1 regardless of LLM output (eliminates 1/2 drift)."""
+    fp_base = {
+        **VALID_VERDICT_JSON,
+        "verdict": "FALSE_POSITIVE",
+        "confidence": "HIGH",
+    }
+    for score in (1, 2, 5, 9):
+        obj = {**fp_base, "risk_score": score}
+        result = _validate_verdict(obj)
+        assert result is not None, f"validation failed for risk_score={score}"
+        assert result["risk_score"] == 1, f"expected 1, got {result['risk_score']} (input={score})"
+
+
+def test_validate_verdict_tp_risk_score_below_8_clamped_to_8():
+    """TRUE_POSITIVE with LLM risk_score < 8 is raised to 8 (minimum calibration floor)."""
+    obj = {**VALID_VERDICT_JSON, "risk_score": 6}
+    result = _validate_verdict(obj)
+    assert result is not None
+    assert result["risk_score"] == 8
+
+
+def test_validate_verdict_tp_risk_score_9_preserved():
+    """TRUE_POSITIVE risk_score of 9 (within [8,10]) is preserved unchanged."""
+    obj = {**VALID_VERDICT_JSON, "risk_score": 9}
+    result = _validate_verdict(obj)
+    assert result is not None
+    assert result["risk_score"] == 9
 
 
 def test_validate_verdict_non_numeric_risk_score_returns_none():
@@ -314,6 +359,8 @@ def test_reason_fp_guardrail_downgrades_medium_confidence():
     assert "downgrade_note" in result["reasoner_meta"]
     assert "FALSE_POSITIVE" in result["reasoner_meta"]["downgrade_note"]
     assert "NEEDS_REVIEW" in result["reasoner_meta"]["downgrade_note"]
+    # risk_score must be reset to 5 (NEEDS_REVIEW default), not 1 (FP enforcement value)
+    assert result["verdict"]["risk_score"] == 5
 
 
 def test_reason_fp_guardrail_downgrades_low_confidence():
@@ -468,6 +515,91 @@ def test_build_prompt_skips_error_and_rate_limited_enrichment(fixture_name: str)
     assert "malicious=" not in prompt
     assert "confidence=" not in prompt
     assert "unavailable" in prompt.lower()
+
+
+def test_build_prompt_contains_mitre_guidance():
+    """build_prompt() output must include the MITRE ATT&CK mapping guidance section."""
+    parsed = parse_alert(load_fixture("ssh_attack.json"))
+    prompt = build_prompt(parsed)
+    assert "MITRE" in prompt
+    assert "T1110" in prompt
+    assert "Brute Force" in prompt
+
+
+# ---------------------------------------------------------------------------
+# 10b. _evaluate_mitre() — Python lookup table
+# ---------------------------------------------------------------------------
+
+
+class TestEvaluateMitre:
+    def test_ssh_returns_T1110(self):
+        assert _evaluate_mitre({"alert_type": "ssh"}) == {"id": "T1110", "name": "Brute Force"}
+
+    def test_network_returns_T1595(self):
+        assert _evaluate_mitre({"alert_type": "network"}) == {
+            "id": "T1595",
+            "name": "Active Scanning",
+        }
+
+    def test_vulnerability_returns_T1190(self):
+        assert _evaluate_mitre({"alert_type": "vulnerability"}) == {
+            "id": "T1190",
+            "name": "Exploit Public-Facing Application",
+        }
+
+    def test_virustotal_returns_T1204(self):
+        assert _evaluate_mitre({"alert_type": "virustotal"}) == {
+            "id": "T1204",
+            "name": "User Execution",
+        }
+
+    def test_windows_event_returns_T1078(self):
+        assert _evaluate_mitre({"alert_type": "windows_event"}) == {
+            "id": "T1078",
+            "name": "Valid Accounts",
+        }
+
+    def test_unknown_type_returns_none(self):
+        assert _evaluate_mitre({"alert_type": "unknown"}) is None
+
+    def test_empty_dict_returns_none(self):
+        assert _evaluate_mitre({}) is None
+
+    def test_none_type_returns_none(self):
+        assert _evaluate_mitre({"alert_type": None}) is None
+
+    def test_known_fp_candidate_returns_none(self):
+        """Known FP candidate has no TTP — must return None even when alert_type has a mapping."""
+        assert _evaluate_mitre({"alert_type": "windows_event", "is_known_fp_candidate": True}) is None
+
+    def test_non_fp_candidate_windows_event_returns_T1078(self):
+        """windows_event without the FP flag still maps to T1078."""
+        assert _evaluate_mitre({"alert_type": "windows_event", "is_known_fp_candidate": False}) == {
+            "id": "T1078",
+            "name": "Valid Accounts",
+        }
+
+
+def test_build_prompt_injects_mitre_hint_ssh():
+    """build_prompt() injects the pre-evaluated T1110 hint for an SSH alert."""
+    parsed = parse_alert(load_fixture("ssh_attack.json"))
+    prompt = build_prompt(parsed)
+    assert "MITRE mapping (pre-evaluated): T1110 Brute Force" in prompt
+
+
+def test_build_prompt_injects_null_mitre_hint():
+    """build_prompt() injects a null hint for an alert type with no mapping."""
+    prompt = build_prompt({"alert_type": "unknown"})
+    assert 'MITRE mapping (pre-evaluated): null' in prompt
+
+
+def test_build_prompt_injects_null_mitre_for_known_fp_candidate():
+    """Known FP candidates get null MITRE even when alert_type has a mapping (windows_event → T1078)."""
+    parsed = parse_alert(load_fixture("windows_spp_error.json"))
+    assert parsed.get("is_known_fp_candidate"), "fixture must be a known FP candidate for this test"
+    prompt = build_prompt(parsed)
+    assert 'MITRE mapping (pre-evaluated): null' in prompt
+    assert "T1078" not in prompt
 
 
 # ---------------------------------------------------------------------------

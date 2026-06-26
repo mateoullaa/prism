@@ -74,7 +74,7 @@ _None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-**MVP v1 COMPLETE.** Next: v2.1 items (MITRE mapping determinism, risk_score variance investigation) or start v2 RAG phase (runtime learning with ChromaDB + embeddings).
+**MVP v1 COMPLETE.** v2.1 items resolved (MITRE mapping + risk_score determinism). Next: v2 RAG phase (runtime learning with ChromaDB + embeddings) or additional hardening of verdict edge cases.
 
 ## Technical debt / pending (post-sanitization)
 
@@ -104,12 +104,13 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - severity_num: 1–4 mapping (TheHive 5)
   - DEFERRED to v2.2: correlation_summary, full_description
   - Live audit (2026-06-22) via FastAPI TestClient: 7 fixtures, 14 live calls, all status=ok, v2 contract validated. Known-FP suppression confirmed (windows_spp_error/grouped → FALSE_POSITIVE/discard).
-  - 253 tests passing
+  - 275 tests passing
 
 ## Follow-up items (post-Shuffle, v2.1)
 
-- [ ] MITRE mapping: reasoner always returns null even on TRUE_POSITIVE. Requires prompt enhancement to extract ATT&CK techniques from alert context.
-- [ ] risk_score determinism: windows_spp_grouped shows minor drift (1→2) with temperature=0. Investigate LLM sampling variance or numeric coercion.
+- [x] MITRE mapping: fixed via Python pre-evaluation (_evaluate_mitre()) — same design principle as enrichment thresholds. 269 tests passing.
+- [x] risk_score determinism: fixed via verdict-range enforcement in Python (_validate_verdict()). FP→1, TP→[8,10], NR→unchanged. Root cause: BLAS float non-determinism even at temperature=0. 275 tests passing.
+  - Live validation (2026-06-26): 3/3 fixtures confirmed correct. Two additional bugs found and fixed: (a) _evaluate_mitre() did not check is_known_fp_candidate — added guard (return None if FP candidate); (b) FP guardrail left risk_score=1 after downgrading to NEEDS_REVIEW — added reset to 5 in guardrail block. Tests added: test_known_fp_candidate_returns_none, test_non_fp_candidate_windows_event_returns_T1078, test_build_prompt_injects_null_mitre_for_known_fp_candidate, test_reason_fp_guardrail_downgrades_medium_confidence (updated).
 
 ## v2 ideas (DO NOT implement now)
 

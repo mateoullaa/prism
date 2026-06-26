@@ -154,8 +154,11 @@ ENRICHMENT SIGNALS (thresholds pre-evaluated — trust these assessments):
 - Multiple providers showing HIGH RISK: return TRUE_POSITIVE with HIGH confidence.
 - All providers showing LOW RISK: weight toward FALSE_POSITIVE or NEEDS_REVIEW based on other context.
 
+MITRE ATT&CK MAPPING: use the pre-evaluated mapping from the alert data below.
+If pre-evaluated as null, output "mitre": null. Never invent a technique.
+
 EXAMPLE OF VALID OUTPUT:
-{"verdict": "TRUE_POSITIVE", "confidence": "HIGH", "justification": "Alert characteristics match a known attack pattern. Source is an external IP with confirmed malicious reputation across multiple threat intelligence sources. No legitimate business use case identified for this traffic.", "mitre": null, "next_action": "Block the source IP at the perimeter and escalate to tier-2 analyst for deeper investigation.", "risk_score": 8}
+{"verdict": "TRUE_POSITIVE", "confidence": "HIGH", "justification": "Alert characteristics match a known attack pattern. Source is an external IP with confirmed malicious reputation across multiple threat intelligence sources. No legitimate business use case identified for this traffic.", "mitre": {"id": "T1110", "name": "Brute Force"}, "next_action": "Block the source IP at the perimeter and escalate to tier-2 analyst for deeper investigation.", "risk_score": 8}
 
 ALERT DATA:
 """
@@ -224,6 +227,16 @@ def build_prompt(parsed: dict) -> str:
             "suspicious indicators are present."
         )
 
+    # MITRE technique — pre-evaluated in Python (same principle as enrichment thresholds)
+    mitre_hint = _evaluate_mitre(parsed)
+    if mitre_hint:
+        parts.append(
+            f"MITRE mapping (pre-evaluated): {mitre_hint['id']} {mitre_hint['name']}"
+            " — include this in your output as-is."
+        )
+    else:
+        parts.append('MITRE mapping (pre-evaluated): null — output "mitre": null.')
+
     alert_data = "\n".join(parts)
     return _PROMPT_PREFIX + alert_data + _PROMPT_SUFFIX
 
@@ -273,6 +286,29 @@ def _evaluate_enrichment(enrichment: dict) -> list[str]:
                     f"reputation={reputation} — {label}"
                 )
     return lines
+
+
+_MITRE_MAP: dict[str, dict] = {
+    "ssh": {"id": "T1110", "name": "Brute Force"},
+    "network": {"id": "T1595", "name": "Active Scanning"},
+    "vulnerability": {"id": "T1190", "name": "Exploit Public-Facing Application"},
+    "virustotal": {"id": "T1204", "name": "User Execution"},
+    "windows_event": {"id": "T1078", "name": "Valid Accounts"},
+}
+
+
+def _evaluate_mitre(parsed: dict) -> dict | None:
+    """Return the pre-evaluated MITRE ATT&CK technique for this alert, or None.
+
+    Maps ``alert_type`` to a technique using a deterministic lookup table so the
+    LLM never has to do the mapping itself (same design principle as enrichment
+    threshold evaluation).
+
+    Returns None for known-FP candidates: they have no TTP to map.
+    """
+    if parsed.get("is_known_fp_candidate"):
+        return None
+    return _MITRE_MAP.get(parsed.get("alert_type") or "")
 
 
 def _format_context(alert_type: str, context: dict) -> list[str]:
@@ -428,6 +464,15 @@ def _validate_verdict(obj: dict) -> dict | None:
         except (TypeError, ValueError):
             logger.debug("Invalid risk_score: %r", raw_score)
             return None
+
+    # Enforce verdict-appropriate range deterministically.  Even at temperature=0,
+    # CPU inference (BLAS float ops) is not perfectly reproducible across runs, so
+    # a 3b model may drift between 1 and 2 for FALSE_POSITIVE or between 7 and 8
+    # for TRUE_POSITIVE.  Python makes the final call: FP is always 1; TP is [8,10].
+    if verdict == "FALSE_POSITIVE":
+        risk_score = 1
+    elif verdict == "TRUE_POSITIVE":
+        risk_score = max(8, min(10, risk_score))
 
     # Validate justification (non-empty string)
     justification = obj.get("justification", "")
@@ -613,6 +658,9 @@ def reason(parsed: dict, *, client: OllamaClient | None = None) -> dict:
         )
         logger.info(downgrade_note)
         verdict_dict["verdict"] = "NEEDS_REVIEW"
+        # Risk score was forced to 1 by FP enforcement in _validate_verdict();
+        # reset to the NEEDS_REVIEW appropriate default now that the verdict changed.
+        verdict_dict["risk_score"] = 5
 
     parsed["verdict"] = verdict_dict
     meta: dict = {
