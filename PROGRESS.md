@@ -18,7 +18,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Categorization axis by nature: `nature_category` field (public_attack / internal_movement / informational / unknown); loaded from `config/known_patterns.json` (with code `_DEFAULTS` fallback); evaluation order: public_attack → internal_movement → informational → unknown; 13 new tests (180 → 187 total)
   - [x] Public attack detection: decoder + groups + external srcip. Configurable lists now in `config/known_patterns.json`
   - [x] Known FP candidates: rule 60602 + rule 61061 (aggregation of 60602); both flagged in config
-  - [x] Apache extension: alert_type="apache" via decoder.name="apache-errorlog"; _extract_apache() extracts data.srcip IOC; fixture apache_attack.json; 6 new tests (281 total)
+  - [x] Apache extension: alert_type="apache" via decoder.name="apache-errorlog"; _extract_apache() extracts data.srcip IOC; fixture apache_attack.json; 6 new tests (282 total)
 - [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB _(public APIs, no server)_
   - [x] VirusTotal client with rate limiting (~4 req/min free tier)
   - [x] AbuseIPDB client
@@ -75,7 +75,7 @@ _None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-**MVP v1 COMPLETE + Parser extended.** v2.1 items resolved (MITRE mapping + risk_score determinism); Apache alert_type added (281 tests). Next: review reasoner prompt for "apache" classification refinement, or begin v2 RAG phase (runtime learning with ChromaDB + embeddings).
+v2.1 COMPLETE. Next: v2.2 (RAG phase — runtime learning with ChromaDB + embeddings) or additional alert type coverage (e.g. virustotal file hash, Windows logon enrichment).
 
 ## Technical debt / pending (post-sanitization)
 
@@ -107,10 +107,19 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - Live audit (2026-06-22) via FastAPI TestClient: 7 fixtures, 14 live calls, all status=ok, v2 contract validated. Known-FP suppression confirmed (windows_spp_error/grouped → FALSE_POSITIVE/discard).
   - 281 tests passing
 
+## v2.1 — Post-MVP Hardening (branch v2-exploration)
+
+[x] **v2.1 COMPLETE & VALIDATED IN PRODUCTION**
+  - Apache alert type: parser recognizes apache-errorlog decoder → alert_type="apache"; _extract_apache() extracts data.srcip as external IOC + GeoLocation context; _MITRE_MAP["apache"] = T1190 Exploit Public-Facing Application
+  - MITRE mapping: deterministic via _evaluate_mitre() — T1110 (ssh), T1595 (network), T1190 (apache/vulnerability), T1204 (virustotal), T1078 (windows_event); returns null for known FP candidates
+  - risk_score enforcement: FALSE_POSITIVE→1, TRUE_POSITIVE→[8,10], NEEDS_REVIEW→LLM value (guardrail resets to 5 on FP downgrade)
+  - Shuffle integration validated in production: TRUE_POSITIVE→case created, NEEDS_REVIEW→alert created, FALSE_POSITIVE→CSV discard only
+  - 282 tests passing, 0 regressions
+
 ## Follow-up items (post-Shuffle, v2.1)
 
 - [x] MITRE mapping: fixed via Python pre-evaluation (_evaluate_mitre()) — same design principle as enrichment thresholds. 269 tests passing.
-- [x] risk_score determinism: fixed via verdict-range enforcement in Python (_validate_verdict()). FP→1, TP→[8,10], NR→unchanged. Root cause: BLAS float non-determinism even at temperature=0. 281 tests passing.
+- [x] risk_score determinism: fixed via verdict-range enforcement in Python (_validate_verdict()). FP→1, TP→[8,10], NR→unchanged. Root cause: BLAS float non-determinism even at temperature=0. 282 tests passing.
   - Live validation (2026-06-26): 3/3 fixtures confirmed correct. Two additional bugs found and fixed: (a) _evaluate_mitre() did not check is_known_fp_candidate — added guard (return None if FP candidate); (b) FP guardrail left risk_score=1 after downgrading to NEEDS_REVIEW — added reset to 5 in guardrail block. Tests added: test_known_fp_candidate_returns_none, test_non_fp_candidate_windows_event_returns_T1078, test_build_prompt_injects_null_mitre_for_known_fp_candidate, test_reason_fp_guardrail_downgrades_medium_confidence (updated).
 
 ## v2 ideas (DO NOT implement now)

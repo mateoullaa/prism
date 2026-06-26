@@ -37,6 +37,7 @@ Format: `[date] category — learning / decision`.
 - [2026-06] Project language is ENGLISH: all code, comments, docstrings, `.md` docs, and commit
   messages are written in English even when the user's prompts/discussion are in Spanish.
 - [2026-06-25] TheHive case creation via "Execute Python" node in Shuffle (not the native "Create case" node) — workaround for Shuffle variable interpolation bug.
+- [2026-06-26] v2.1 COMPLETE & VALIDATED in production: MITRE mapping deterministic (_evaluate_mitre()), risk_score enforced in Python (FP→1, TP→[8,10]), Apache alert type end-to-end (parser+reasoner), Shuffle integration confirmed (3 verdict paths). 282 tests passing.
 
 ## Technical learnings
 - [2026-06] Enrichment interpretation rules added to reasoner prompt (not code): qwen2.5:3b was ignoring strong enrichment signals (e.g., AbuseIPDB score=100, VT malicious=16) and returning NEEDS_REVIEW. Thresholds now explicit in prompt (score≥80 + reports≥10 → TRUE_POSITIVE; VT malicious≥5 → TRUE_POSITIVE).
