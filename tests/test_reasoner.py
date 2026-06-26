@@ -535,6 +535,12 @@ class TestEvaluateMitre:
     def test_ssh_returns_T1110(self):
         assert _evaluate_mitre({"alert_type": "ssh"}) == {"id": "T1110", "name": "Brute Force"}
 
+    def test_apache_returns_T1190(self):
+        assert _evaluate_mitre({"alert_type": "apache"}) == {
+            "id": "T1190",
+            "name": "Exploit Public-Facing Application",
+        }
+
     def test_network_returns_T1595(self):
         assert _evaluate_mitre({"alert_type": "network"}) == {
             "id": "T1595",

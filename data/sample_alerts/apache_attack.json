@@ -1,0 +1,47 @@
+{
+  "agent": {
+    "name": "webserver-01",
+    "id": "005"
+  },
+  "data": {
+    "srcip": "5.188.206.55"
+  },
+  "rule": {
+    "firedtimes": 3,
+    "mail": false,
+    "level": 6,
+    "description": "Apache: Invalid URI (bad client request).",
+    "groups": [
+      "apache",
+      "web",
+      "invalid_request"
+    ],
+    "id": "30315"
+  },
+  "full_log": "[Mon Jun 26 10:14:22.123456 2026] [core:error] [pid 12345] [client 5.188.206.55:44032] AH00126: Invalid URI in request GET /../../../etc/passwd HTTP/1.1",
+  "id": "1776572976.300001",
+  "timestamp": "2026-06-26T10:14:22.456+0000",
+  "predecoder": {
+    "hostname": "webserver-01",
+    "program_name": "apache2",
+    "timestamp": "Mon Jun 26 10:14:22 2026"
+  },
+  "manager": {
+    "name": "wazuh"
+  },
+  "decoder": {
+    "name": "apache-errorlog"
+  },
+  "input": {
+    "type": "log"
+  },
+  "@timestamp": "2026-06-26T10:14:22.456Z",
+  "location": "/var/log/apache2/error.log",
+  "GeoLocation": {
+    "country_name": "Russia",
+    "location": {
+      "lon": 37.6156,
+      "lat": 55.7522
+    }
+  }
+}

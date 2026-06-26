@@ -291,6 +291,7 @@ def _evaluate_enrichment(enrichment: dict) -> list[str]:
 _MITRE_MAP: dict[str, dict] = {
     "ssh": {"id": "T1110", "name": "Brute Force"},
     "network": {"id": "T1595", "name": "Active Scanning"},
+    "apache": {"id": "T1190", "name": "Exploit Public-Facing Application"},
     "vulnerability": {"id": "T1190", "name": "Exploit Public-Facing Application"},
     "virustotal": {"id": "T1204", "name": "User Execution"},
     "windows_event": {"id": "T1078", "name": "Valid Accounts"},

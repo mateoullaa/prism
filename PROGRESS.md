@@ -18,6 +18,7 @@ States: `[ ]` pending · `[~]` in progress · `[x]` done and tested.
   - [x] Categorization axis by nature: `nature_category` field (public_attack / internal_movement / informational / unknown); loaded from `config/known_patterns.json` (with code `_DEFAULTS` fallback); evaluation order: public_attack → internal_movement → informational → unknown; 13 new tests (180 → 187 total)
   - [x] Public attack detection: decoder + groups + external srcip. Configurable lists now in `config/known_patterns.json`
   - [x] Known FP candidates: rule 60602 + rule 61061 (aggregation of 60602); both flagged in config
+  - [x] Apache extension: alert_type="apache" via decoder.name="apache-errorlog"; _extract_apache() extracts data.srcip IOC; fixture apache_attack.json; 6 new tests (281 total)
 - [x] **2. `tools/enricher.py`** — VirusTotal + AbuseIPDB _(public APIs, no server)_
   - [x] VirusTotal client with rate limiting (~4 req/min free tier)
   - [x] AbuseIPDB client
@@ -74,7 +75,7 @@ _None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-**MVP v1 COMPLETE.** v2.1 items resolved (MITRE mapping + risk_score determinism). Next: v2 RAG phase (runtime learning with ChromaDB + embeddings) or additional hardening of verdict edge cases.
+**MVP v1 COMPLETE + Parser extended.** v2.1 items resolved (MITRE mapping + risk_score determinism); Apache alert_type added (281 tests). Next: review reasoner prompt for "apache" classification refinement, or begin v2 RAG phase (runtime learning with ChromaDB + embeddings).
 
 ## Technical debt / pending (post-sanitization)
 
@@ -104,12 +105,12 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - severity_num: 1–4 mapping (TheHive 5)
   - DEFERRED to v2.2: correlation_summary, full_description
   - Live audit (2026-06-22) via FastAPI TestClient: 7 fixtures, 14 live calls, all status=ok, v2 contract validated. Known-FP suppression confirmed (windows_spp_error/grouped → FALSE_POSITIVE/discard).
-  - 275 tests passing
+  - 281 tests passing
 
 ## Follow-up items (post-Shuffle, v2.1)
 
 - [x] MITRE mapping: fixed via Python pre-evaluation (_evaluate_mitre()) — same design principle as enrichment thresholds. 269 tests passing.
-- [x] risk_score determinism: fixed via verdict-range enforcement in Python (_validate_verdict()). FP→1, TP→[8,10], NR→unchanged. Root cause: BLAS float non-determinism even at temperature=0. 275 tests passing.
+- [x] risk_score determinism: fixed via verdict-range enforcement in Python (_validate_verdict()). FP→1, TP→[8,10], NR→unchanged. Root cause: BLAS float non-determinism even at temperature=0. 281 tests passing.
   - Live validation (2026-06-26): 3/3 fixtures confirmed correct. Two additional bugs found and fixed: (a) _evaluate_mitre() did not check is_known_fp_candidate — added guard (return None if FP candidate); (b) FP guardrail left risk_score=1 after downgrading to NEEDS_REVIEW — added reset to 5 in guardrail block. Tests added: test_known_fp_candidate_returns_none, test_non_fp_candidate_windows_event_returns_T1078, test_build_prompt_injects_null_mitre_for_known_fp_candidate, test_reason_fp_guardrail_downgrades_medium_confidence (updated).
 
 ## v2 ideas (DO NOT implement now)

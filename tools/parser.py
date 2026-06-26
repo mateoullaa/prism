@@ -210,6 +210,8 @@ def _classify(src: dict) -> str:
         return "ssh"
     if decoder_name == "windows_eventchannel":
         return "windows_event"
+    if decoder_name == "apache-errorlog":
+        return "apache"
     return "unknown"
 
 
@@ -342,6 +344,23 @@ def _extract_ssh(src: dict) -> tuple[list[dict], dict, bool]:
     return iocs, context, False
 
 
+def _extract_apache(src: dict) -> tuple[list[dict], dict, bool]:
+    """Extract IOCs and context for Apache error-log alerts."""
+    iocs: list[dict] = []
+    srcip = _get(src, "data.srcip")
+    if srcip:
+        iocs.append({
+            "value": str(srcip),
+            "type": "ip",
+            "external": _is_external_ip(str(srcip)),
+        })
+    context: dict = {
+        "full_log": src.get("full_log"),
+        "country": _get(src, "GeoLocation.country_name"),
+    }
+    return iocs, context, False
+
+
 def _extract_vulnerability(src: dict) -> tuple[list[dict], dict, bool]:
     """Extract IOCs and context for vulnerability alerts."""
     iocs: list[dict] = []
@@ -387,6 +406,7 @@ _EXTRACTORS = {
     "windows_event": _extract_windows_event,
     "network": _extract_network,
     "ssh": _extract_ssh,
+    "apache": _extract_apache,
     "vulnerability": _extract_vulnerability,
     "virustotal": _extract_virustotal,
 }

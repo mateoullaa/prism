@@ -697,3 +697,76 @@ def test_load_patterns_falls_back_per_malformed_key(tmp_path):
     assert patterns["informational_groups"] == _DEFAULTS["informational_groups"]
     assert patterns["public_attack_signatures"] == _DEFAULTS["public_attack_signatures"]
     assert patterns["internal_movement_groups"] == _DEFAULTS["internal_movement_groups"]
+
+
+# ---------------------------------------------------------------------------
+# 15. Apache alert type — classification, IOC extraction, and context
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def apache() -> dict:
+    return load_fixture("apache_attack.json")
+
+
+def test_parse_apache_alert_type(apache):
+    """apache-errorlog decoder → alert_type == 'apache'."""
+    assert parse_alert(apache)["alert_type"] == "apache"
+
+
+def test_parse_apache_nature_category_public_attack(apache):
+    """apache-errorlog + invalid_request group + public srcip → public_attack."""
+    assert parse_alert(apache)["nature_category"] == "public_attack"
+
+
+def test_parse_apache_extracts_srcip_as_ioc(apache):
+    """data.srcip is extracted as an external IP IOC."""
+    result = parse_alert(apache)
+    ip_iocs = [i for i in result["iocs"] if i["type"] == "ip"]
+    assert any(
+        i["value"] == "5.188.206.55" and i["external"] is True for i in ip_iocs
+    )
+
+
+def test_parse_apache_no_srcip_produces_empty_iocs():
+    """apache-errorlog alert without data.srcip → iocs == []."""
+    alert = {
+        "decoder": {"name": "apache-errorlog"},
+        "data": {},
+        "rule": {
+            "id": "30315",
+            "level": 6,
+            "description": "Apache: Invalid URI.",
+            "groups": ["apache", "web", "invalid_request"],
+        },
+        "location": "/var/log/apache2/error.log",
+    }
+    result = parse_alert(alert)
+    assert result["iocs"] == []
+    assert result["has_external_iocs"] is False
+
+
+def test_parse_apache_private_srcip_is_not_external():
+    """apache-errorlog alert with a private srcip → ioc.external == False."""
+    alert = {
+        "decoder": {"name": "apache-errorlog"},
+        "data": {"srcip": "10.0.0.42"},
+        "rule": {
+            "id": "30315",
+            "level": 6,
+            "description": "Apache: Invalid URI.",
+            "groups": ["apache", "web", "invalid_request"],
+        },
+        "location": "/var/log/apache2/error.log",
+    }
+    result = parse_alert(alert)
+    ip_iocs = [i for i in result["iocs"] if i["type"] == "ip"]
+    assert len(ip_iocs) == 1
+    assert ip_iocs[0]["value"] == "10.0.0.42"
+    assert ip_iocs[0]["external"] is False
+    assert result["has_external_iocs"] is False
+
+
+def test_parse_apache_context_contains_country(apache):
+    """Parsed apache alert context includes the country from GeoLocation."""
+    result = parse_alert(apache)
+    assert result["context"].get("country") == "Russia"
