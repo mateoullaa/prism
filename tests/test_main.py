@@ -1456,6 +1456,40 @@ def test_rag_live_auto_classifies_on_unanimous_fp(monkeypatch, tmp_path) -> None
         app.dependency_overrides.pop(get_pipeline, None)
 
 
+def test_correlation_summary_in_response(monkeypatch, tmp_path) -> None:
+    """correlation_summary is present in the response when RAG has hits."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    ollama = _make_ollama_client(_FP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    retriever = _mock_retriever([
+        _rag_hit(0.99), _rag_hit(0.97), _rag_hit(0.95),
+        _rag_hit(0.93), _rag_hit(0.91),
+    ])
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), retriever)
+    try:
+        resp = TestClient(app).post("/analyze", json=load_fixture("windows_spp_error.json"))
+        body = resp.json()
+        assert "correlation_summary" in body
+        assert body["correlation_summary"] is not None
+        assert "FALSE_POSITIVE" in body["correlation_summary"]
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+def test_correlation_summary_none_when_rag_disabled(monkeypatch, tmp_path) -> None:
+    """correlation_summary is None when no retriever is injected (RAG disabled)."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    ollama = _make_ollama_client(_TP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), None)
+    try:
+        resp = TestClient(app).post("/analyze", json=load_fixture("firewall_block.json"))
+        body = resp.json()
+        assert body.get("correlation_summary") is None
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
 def test_rag_indexes_only_real_llm_verdicts(monkeypatch, tmp_path) -> None:
     """A genuine LLM verdict (status=ok) is indexed into the corpus."""
     monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))

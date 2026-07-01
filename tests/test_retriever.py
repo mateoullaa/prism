@@ -21,6 +21,7 @@ from tools.retriever import (  # noqa: E402
     Retriever,
     _embedding_text,
     auto_fp_model_label,
+    build_correlation_summary,
     decide_auto_fp,
     index_alert,
     retrieve_similar,
@@ -339,3 +340,60 @@ def test_index_alert_extracts_mitre_id():
 def test_auto_fp_model_label(monkeypatch):
     monkeypatch.setenv("EMBED_MODEL", "nomic-embed-text")
     assert auto_fp_model_label() == "rag-similarity:nomic-embed-text"
+
+
+# ---------------------------------------------------------------------------
+# build_correlation_summary — human-readable interpretation for analysts
+# ---------------------------------------------------------------------------
+
+
+def _cs_hit(verdict: str, similarity: float = 0.95) -> dict:
+    return {"similarity": similarity, "verdict": verdict, "confidence": "HIGH",
+            "alert_type": "windows_event", "rule_id": "60602", "mitre_id": "", "timestamp": ""}
+
+
+def test_correlation_summary_none_on_empty_hits():
+    assert build_correlation_summary([]) is None
+
+
+def test_correlation_summary_all_fp():
+    hits = [_cs_hit("FALSE_POSITIVE") for _ in range(5)]
+    summary = build_correlation_summary(hits)
+    assert summary is not None
+    assert "FALSE_POSITIVE" in summary
+    assert "5/5" in summary
+    assert "benigno" in summary.lower()
+
+
+def test_correlation_summary_all_tp():
+    hits = [_cs_hit("TRUE_POSITIVE") for _ in range(5)]
+    summary = build_correlation_summary(hits)
+    assert "TRUE_POSITIVE" in summary
+    assert "5/5" in summary
+    assert "riesgo" in summary.lower()
+
+
+def test_correlation_summary_mixed():
+    hits = [_cs_hit("TRUE_POSITIVE"), _cs_hit("FALSE_POSITIVE"), _cs_hit("NEEDS_REVIEW")]
+    summary = build_correlation_summary(hits)
+    assert "mixto" in summary.lower() or "señal" in summary.lower()
+
+
+def test_correlation_summary_majority_tp():
+    hits = [_cs_hit("TRUE_POSITIVE")] * 4 + [_cs_hit("FALSE_POSITIVE")]
+    summary = build_correlation_summary(hits)
+    assert "4/5" in summary
+    assert "TRUE_POSITIVE" in summary
+
+
+def test_correlation_summary_majority_fp():
+    hits = [_cs_hit("FALSE_POSITIVE")] * 4 + [_cs_hit("TRUE_POSITIVE")]
+    summary = build_correlation_summary(hits)
+    assert "4/5" in summary
+    assert "FALSE_POSITIVE" in summary
+
+
+def test_correlation_summary_includes_similarity_score():
+    hits = [_cs_hit("FALSE_POSITIVE", similarity=0.97)]
+    summary = build_correlation_summary(hits)
+    assert "97%" in summary

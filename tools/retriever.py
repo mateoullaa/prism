@@ -254,6 +254,74 @@ def _summarise(hits: list[dict]) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Correlation summary — human-readable interpretation of historical precedents
+# ---------------------------------------------------------------------------
+
+
+def build_correlation_summary(hits: list[dict]) -> str | None:
+    """Build a human-readable correlation insight from historical precedents.
+
+    This field is intended for analyst consumption (TheHive case notes, Shuffle
+    payload) — distinct from ``_summarise`` which produces a terse aggregate for
+    the LLM prompt.  Returns ``None`` when there are no hits so callers can
+    omit the field cleanly.
+    """
+    if not hits:
+        return None
+
+    total = len(hits)
+    counts = {"FALSE_POSITIVE": 0, "TRUE_POSITIVE": 0, "NEEDS_REVIEW": 0}
+    top_score = 0.0
+    for hit in hits:
+        verdict = hit.get("verdict", "")
+        if verdict in counts:
+            counts[verdict] += 1
+        s = hit.get("similarity", 0.0)
+        if s > top_score:
+            top_score = s
+
+    fp = counts["FALSE_POSITIVE"]
+    tp = counts["TRUE_POSITIVE"]
+    nr = counts["NEEDS_REVIEW"]
+    score_pct = int(top_score * 100)
+
+    # Dominant-FP pattern
+    if fp == total:
+        return (
+            f"Patrón recurrente benigno: {fp}/{total} precedentes similares son "
+            f"FALSE_POSITIVE (similitud máx. {score_pct}%). "
+            f"Sin incidentes reales registrados para este patrón."
+        )
+    # Dominant-TP pattern
+    if tp == total:
+        return (
+            f"Patrón de riesgo confirmado: {tp}/{total} precedentes similares son "
+            f"TRUE_POSITIVE (similitud máx. {score_pct}%). "
+            f"Alta probabilidad de incidente real."
+        )
+    # Strong TP majority (≥60%)
+    if tp / total >= 0.6:
+        return (
+            f"Historial con señal real predominante: {tp}/{total} TRUE_POSITIVE, "
+            f"{fp}/{total} FALSE_POSITIVE, {nr}/{total} NEEDS_REVIEW "
+            f"(similitud máx. {score_pct}%). Revisar enriquecimiento de IOCs."
+        )
+    # Strong FP majority (≥60%)
+    if fp / total >= 0.6:
+        return (
+            f"Historial mayoritariamente benigno: {fp}/{total} FALSE_POSITIVE, "
+            f"{tp}/{total} TRUE_POSITIVE, {nr}/{total} NEEDS_REVIEW "
+            f"(similitud máx. {score_pct}%). Aplicar criterio conservador."
+        )
+    # Mixed signal
+    return (
+        f"Historial mixto: {tp}/{total} TRUE_POSITIVE, {fp}/{total} FALSE_POSITIVE, "
+        f"{nr}/{total} NEEDS_REVIEW (similitud máx. {score_pct}%). "
+        f"Señal ambigua — requiere revisión manual."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Function 1 — auto-classification by similarity (pure, no I/O → trivially tested)
 # ---------------------------------------------------------------------------
 

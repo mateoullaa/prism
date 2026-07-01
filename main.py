@@ -62,6 +62,7 @@ from tools.parser import parse_alert  # noqa: E402
 from tools.reasoner import reason  # noqa: E402
 from tools.retriever import (  # noqa: E402
     auto_fp_model_label,
+    build_correlation_summary,
     decide_auto_fp,
     index_alert,
     retrieve_similar,
@@ -726,6 +727,7 @@ def analyze(
         parsed["case_description"] = _build_case_description(parsed)
         parsed["full_description"] = parsed.get("case_description", "")
         parsed["severity_num"] = _build_severity_num(parsed)
+        parsed["correlation_summary"] = build_correlation_summary(rag["hits"])
         timestamp = datetime.now(timezone.utc).isoformat()
         log_alert(parsed, timestamp=timestamp)
 
