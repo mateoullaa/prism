@@ -1,75 +1,105 @@
-# Prism — SOC Alert Triage Agent
+# Prism — AI-Powered SOC Alert Triage Agent
 
 [![tests](https://github.com/mateoullaa/prism/actions/workflows/tests.yml/badge.svg)](https://github.com/mateoullaa/prism/actions/workflows/tests.yml)
-![python](https://img.shields.io/badge/python-3.10%2B-blue)
-![status](https://img.shields.io/badge/status-v2%20production-brightgreen)
+![python](https://img.shields.io/badge/python-3.12-blue)
+![status](https://img.shields.io/badge/status-production%20v2.2-brightgreen)
+![tests](https://img.shields.io/badge/tests-334%20passing-success)
 
-> _Named **Prism** — a prism separates light from noise, which is exactly what this agent does with security alerts._
+> _A prism separates light from noise — exactly what this agent does with security alerts._
 
-An on-premise agent that automates the **first intelligence layer of SOC triage**. It receives
-[Wazuh](https://wazuh.com/) alerts via webhook, classifies them, enriches IOCs with public threat
-intelligence, and uses a **local LLM** to decide false positive vs. true positive — mapping
-MITRE ATT&CK techniques and recommending next steps. The structured verdict is returned to the
-[Shuffle](https://shuffler.io/) SOAR workflow.
+Prism is an **on-premise AI agent** that automates the first triage layer of a SOC. It receives
+[Wazuh](https://wazuh.com/) alerts via webhook, classifies them, enriches indicators of compromise
+(IOCs) against three threat intelligence APIs in parallel, and uses a **local LLM** (via Ollama)
+to produce a structured verdict — including MITRE ATT&CK mapping, risk score, and recommended next
+action. The verdict is returned to a [Shuffle](https://shuffler.io/) SOAR workflow which creates
+cases in [TheHive 5](https://thehive-project.org/).
 
-Built to run **fully on-premise with a local model**, so sensitive alert data never leaves the network.
-
----
-
-## The problem
-
-On a real corpus of **6,320 alerts over 3 days, 61% were a single recurring false positive.**
-Analysts burn hours re-triaging the same noise by hand. Prism front-loads that work: it filters
-the obvious, enriches what matters, and hands the analyst a reasoned verdict instead of a raw alert.
+**All inference runs locally. No alert data ever leaves the network.**
 
 ---
 
-## How it works
+## The problem it solves
+
+On a real production corpus of **6,320 alerts over 3 days, 61% were a single recurring false positive** (Windows Security-SPP rule 60602). Analysts were re-triaging the same noise manually, every day.
+
+Prism front-loads that work: it classifies the obvious, enriches what matters, contextualizes with historical precedents, and delivers the analyst a reasoned verdict instead of a raw alert.
+
+---
+
+## Architecture
 
 ```
 Wazuh alert (JSON)
-   │
-   ▼
- parser ──▶ enricher* ──▶ reasoner (local LLM) ──▶ router ──▶ logger ──▶ verdict to Shuffle
-   │           │                  │                   │
-classify    VirusTotal +     FP/TP + MITRE +      TRUE_POSITIVE → TheHive case
-+ extract   AbuseIPDB +     risk_score +           NEEDS_REVIEW → TheHive alert
-  IOCs      OTX             key_factors +           FALSE_POSITIVE → discard + CSV
-            (in parallel)   next_action
-
- * enrichment runs only when the alert has an external IOC (~15% of traffic) → saves API quota
+      │
+      ▼
+  ┌─────────┐     ┌──────────────────────────────────┐     ┌──────────┐
+  │  parser  │────▶│           enricher               │────▶│ reasoner │
+  │          │     │  VirusTotal · AbuseIPDB · OTX    │     │ (Ollama) │
+  │ classify │     │  parallel threads · TTL cache    │     │ local LLM│
+  │ + IOCs   │     │  rate limiting · fail-safe       │     └────┬─────┘
+  └─────────┘     └──────────────────────────────────┘          │
+                                                                 │ verdict
+                  ┌──────────────────────────────────┐          │
+                  │          retriever (RAG)          │◀─────────┤
+                  │  ChromaDB · nomic-embed-text      │          │
+                  │  similar_cases · auto-FP shadow   │          │
+                  └──────────────────────────────────┘          │
+                                                                 ▼
+                                                          ┌────────────┐
+                                                          │   router   │
+                                                          │ TP → case  │
+                                                          │ NR → alert │
+                                                          │ FP → discard│
+                                                          └─────┬──────┘
+                                                                │
+                                                          ┌─────▼──────┐
+                                                          │   logger   │
+                                                          │ CSV audit  │
+                                                          │ every alert│
+                                                          └────────────┘
+                                                                │
+                                                                ▼
+                                                         verdict → Shuffle
+                                                         → TheHive 5 case
 ```
 
-- **parser** — classifies an alert into one of 6 types (ssh, web, apache, firewall, malware, generic) and extracts IOCs (IPs, hashes, CVEs), filtering private IPs. Pure, deterministic, no external calls.
-- **enricher** — looks up external IPs on VirusTotal + AbuseIPDB + OTX AlienVault **in parallel**, with a fail-fast rate limiter and an in-memory TTL cache (error cache: 60 s) to respect free-tier quotas.
-- **reasoner** — a local LLM (Ollama) returns a strict-JSON verdict: `verdict` (FP/TP/NEEDS_REVIEW), `confidence`, `justification`, `mitre` (deterministic via `_evaluate_mitre`), `next_action`, `risk_score` (deterministic: FP→1, TP→[8,10]), `key_factors`, `observables`, `tags`, `case_description`, `severity_num`. On any failure it falls back to a conservative `NEEDS_REVIEW`.
-- **router** — Prism's decision layer: routes TRUE_POSITIVE to a TheHive case, NEEDS_REVIEW to a TheHive alert, and FALSE_POSITIVE to discard + CSV. Conservative by design — on any doubt it escalates.
-- **logger** — appends a CSV audit row for **every** alert, including discarded ones, so no routing decision is ever untraceable.
-- **service** (`main.py`) — a FastAPI `POST /analyze` endpoint orchestrates the whole pipeline and returns the verdict; the caller reads `routing.send_to_shuffle` to decide what comes next.
+### Pipeline components
 
-See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and rationale.
+| Component | Responsibility |
+|-----------|---------------|
+| **parser** | Classifies alerts into 6 types (ssh, web, apache, firewall, malware, generic). Extracts IOCs (IPs, hashes, CVEs), filters private ranges. Deterministic — no external calls. |
+| **enricher** | Queries VirusTotal, AbuseIPDB, and OTX AlienVault **in parallel** (ThreadPoolExecutor). Rate limiter (4 req/min free tier), in-memory TTL cache, per-source error cache (60 s). Skips enrichment when no external IOC is present (~85% of traffic). |
+| **reasoner** | Builds a structured prompt with alert context, enrichment summary, MITRE candidate, and historical precedents. Sends to a local Ollama model. Validates and enforces the JSON contract: verdict enum, risk\_score range, MITRE determinism. Conservative fallback on any failure. |
+| **retriever** (RAG) | Embeds the alert signature via `nomic-embed-text` (Ollama), queries ChromaDB for the top-K most similar historical alerts, and injects a summary into the LLM prompt. In shadow mode, also computes auto-FP decisions without acting on them. |
+| **router** | Routes `TRUE_POSITIVE` to a TheHive case, `NEEDS_REVIEW` to a TheHive alert, `FALSE_POSITIVE` to discard + CSV audit. Conservative by design: on any ambiguity it escalates. |
+| **logger** | Appends a CSV audit row for **every** alert processed, including discarded false positives. No routing decision is ever untraced. |
 
 ---
 
-## Example (illustrative)
+## Key features
 
-An Apache web application exploit attempt comes in:
+### v2.2 — RAG Runtime Learning (shadow mode)
+- **Context injection**: the N most similar historical alerts are retrieved from ChromaDB and injected into the LLM prompt as a supporting signal (`"Of 5 similar alerts: 4 FALSE_POSITIVE, 1 TRUE_POSITIVE"`).
+- **Auto-FP classification** (shadow mode): when ≥5 neighbors above similarity threshold 0.92 are unanimously `FALSE_POSITIVE/HIGH`, the agent would skip the LLM entirely (~15s saved per alert). Currently logging `would_be=auto_fp` for production validation before activation.
+- **Correlation summary**: a human-readable English interpretation of the RAG result (`correlation_summary`) is appended to the case description (`full_description`), surfacing historical patterns to the analyst.
+- **Feedback-loop guard**: only real LLM verdicts (`status="ok"`) are indexed back into ChromaDB — auto-classified and fallback verdicts are never stored.
+- **Fail-safe**: if ChromaDB or the embeddings endpoint is unavailable, the pipeline degrades silently to v2.1 behavior.
 
-```json
-{
-  "rule": {
-    "id": "31166",
-    "level": 10,
-    "description": "Apache: Attempt to exploit web application"
-  },
-  "data": { "srcip": "185.220.101.1", "url": "/admin/.env" },
-  "decoder": { "name": "apache-errorlog" },
-  "GeoLocation": { "country_name": "Netherlands" }
-}
-```
+### Determinism over probabilism
+Fields that cannot be left to LLM discretion are computed in Python:
+- `mitre` — determined by `_evaluate_mitre()` from alert type and known-FP status
+- `risk_score` — enforced: `FALSE_POSITIVE → 1`, `TRUE_POSITIVE → [8, 10]`, `NEEDS_REVIEW → LLM value`
+- Enrichment thresholds — AbuseIPDB score, VT malicious count, OTX pulse count evaluated in Python; the LLM receives pre-evaluated labels, not raw numbers
 
-Prism returns the enriched alert with a reasoned verdict and a routing decision (the response
-body is the full pipeline dict; abbreviated here):
+### Metrics dashboard
+- `GET /metrics` — JSON statistics from the audit log (verdicts, latency, fallback rate, auto-FP rate, alert types, top rules)
+- `GET /dashboard` — self-contained HTML dashboard with Chart.js (dark theme, 7 KPI cards, 5 charts, top-rules table). Zero new Python dependencies.
+
+---
+
+## Sample response
+
+An Apache exploit attempt comes in (`rule.id=31166`, `srcip=185.220.101.1`):
 
 ```json
 {
@@ -78,122 +108,168 @@ body is the full pipeline dict; abbreviated here):
   "iocs": [{ "value": "185.220.101.1", "type": "ip", "external": true }],
   "enrichment": {
     "185.220.101.1": {
-      "virustotal": { "status": "ok", "malicious": 12, "suspicious": 2 },
-      "abuseipdb": { "status": "ok", "abuse_confidence_score": 98, "total_reports": 387 },
-      "otx": { "status": "ok", "pulse_count": 14 }
+      "virustotal":  { "status": "ok", "malicious": 12, "suspicious": 2 },
+      "abuseipdb":  { "status": "ok", "abuse_confidence_score": 98, "total_reports": 387 },
+      "otx":        { "status": "ok", "pulse_count": 14 }
     }
   },
   "verdict": {
-    "verdict": "TRUE_POSITIVE",
-    "confidence": "HIGH",
+    "verdict":      "TRUE_POSITIVE",
+    "confidence":   "HIGH",
+    "risk_score":   9,
+    "mitre":        { "id": "T1190", "name": "Exploit Public-Facing Application" },
     "justification": "Exploit attempt targeting /admin/.env from a Tor exit node flagged by 12 VT engines, 98% AbuseIPDB confidence, and 14 OTX pulses.",
-    "mitre": { "id": "T1190", "name": "Exploit Public-Facing Application" },
-    "next_action": "Block 185.220.101.1 at the perimeter and audit web server logs for successful access.",
-    "risk_score": 9,
-    "severity_num": 3,
-    "key_factors": ["Tor exit node", "High VT score", "OTX: 14 pulses"],
-    "observables": [{ "value": "185.220.101.1", "type": "ip" }],
-    "tags": ["T1190", "apache", "exploit"]
+    "next_action":  "Block 185.220.101.1 at the perimeter and audit web server logs for successful access.",
+    "key_factors":  ["Tor exit node", "High VT score", "OTX: 14 pulses"],
+    "tags":         ["T1190", "apache", "exploit"],
+    "severity_num": 3
   },
+  "correlation_summary": "1/1 similar past alerts were TRUE_POSITIVE (avg similarity 94%). High-risk pattern — prioritize review.",
   "routing": {
     "action": "create_case",
-    "send_to_shuffle": true,
-    "reason": "Verdict is TRUE_POSITIVE (confidence=HIGH). Case created for analyst review."
+    "send_to_shuffle": true
   }
 }
 ```
 
 ---
 
-## Project status
+## Tech stack
 
-v2 is production-ready. The full pipeline runs in Docker on `192.168.11.105:8000`,
-wired end-to-end with Shuffle → Wazuh → Prism → TheHive. **282 tests, deterministic, no network.**
-
-- [x] **Parser** — 6 alert types + IOC extraction · _32 tests_
-- [x] **Enricher** — VirusTotal + AbuseIPDB + OTX, rate limiting + TTL cache · _31 tests_
-- [x] **Reasoner** — local LLM verdict, deterministic MITRE + risk_score enforcement · _75 tests_
-- [x] **Router** — conservative escalation to TheHive (cases + alerts) · _29 tests_
-- [x] **Logger** — CSV audit row for every alert, including discarded ones · _23 tests_
-- [x] **FastAPI service** — `POST /analyze` orchestration · _33 tests_
-- [x] **Shuffle integration** — Wazuh → Prism → TheHive (cases + alerts + observables) ✅
-- [x] **Docker deployment** — containerized at `192.168.11.105:8000` ✅
-- [ ] **RAG + correlation** — runtime learning (v2.2)
-- [ ] **UI dashboard** — graphical interface (v2.3)
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.12 |
+| API framework | FastAPI + Uvicorn |
+| Local LLM | Ollama (`qwen2.5:3b`) |
+| Vector store | ChromaDB (embedded, persistent) |
+| Embeddings | Ollama `nomic-embed-text` |
+| Threat intel | VirusTotal API · AbuseIPDB API · OTX AlienVault |
+| SOAR integration | Shuffle → TheHive 5 |
+| Alerting source | Wazuh |
+| Containerization | Docker + Docker Compose |
+| Testing | Pytest (334 tests, no network required) |
 
 ---
 
-## Tech stack
+## Project status
 
-**Python 3.10+** · FastAPI · Ollama (local LLM) · VirusTotal API · AbuseIPDB API · OTX AlienVault ·
-TheHive 5 · Docker · integrates with Wazuh and Shuffle. No data leaves the host.
+```
+v1    LIVE    — core pipeline (parse → enrich → reason → route → log)
+v2    LIVE    — OTX enrichment, observables, tags, case_description, TheHive integration
+v2.1  LIVE    — Apache alert type, deterministic MITRE mapping, risk_score enforcement
+v2.2  LIVE    — RAG context injection (shadow mode auto-FP), correlation_summary, metrics dashboard
+```
 
-Shuffle routing: `TRUE_POSITIVE` → TheHive case · `NEEDS_REVIEW` → TheHive alert · `FALSE_POSITIVE` → discard + CSV audit log.
+### Component checklist
+
+- [x] **Parser** — 6 alert types, IOC extraction, nature categorization · _32 tests_
+- [x] **Enricher** — VirusTotal + AbuseIPDB + OTX parallel, TTL cache, rate limiting · _31 tests_
+- [x] **Reasoner** — local LLM verdict, deterministic MITRE + risk\_score, conservative fallback · _75 tests_
+- [x] **Router** — conservative escalation to TheHive (cases + alerts) · _29 tests_
+- [x] **Logger** — CSV audit trail for every alert (including discarded FPs) · _23 tests_
+- [x] **Service** — FastAPI `POST /analyze` + `GET /health` · _33 tests_
+- [x] **Retriever (RAG)** — ChromaDB + Ollama embeddings, shadow auto-FP, correlation summary · _36 tests_
+- [x] **Metrics** — `GET /metrics` JSON + `GET /dashboard` HTML · _14 tests_
+- [x] **Docker** — containerized, production-deployed at `192.168.11.105:8000`
+- [x] **Shuffle integration** — end-to-end: Wazuh → Prism → TheHive (cases + alerts + observables)
+
+**334 tests · 0 regressions · deterministic · no network required**
 
 ---
 
 ## Engineering approach
 
-This repo doubles as a study in disciplined, agent-assisted development:
-
-- **WAT pattern** (Workflows · Agents · Tools) — LLM reasoning is kept separate from
-  deterministic Python execution, so each tool is independently testable.
-- **Deterministic tests** — external APIs are mocked; the suite needs no network or server.
-- **Conventions & scope are documented and enforced** ([`docs/`](docs/),
-  [`CLAUDE.md`](CLAUDE.md)); secrets live only in `.env`, and fixtures are anonymized.
-- Built with a **multi-agent Claude Code harness** (orchestrator + builder + reviewer + scribe);
-  the process notes live in [`PROGRESS.md`](PROGRESS.md) and the per-component SOPs in
-  [`workflows/`](workflows/).
+- **Determinism first** — fields that can be computed deterministically in Python are never delegated to the LLM. The model handles language and reasoning; Python handles rules and contracts.
+- **Fail-safe at every layer** — each tool catches its own exceptions and returns a conservative result. The service never returns HTTP 500; no alert is ever lost.
+- **Injectable dependencies** — all external clients (Ollama, VirusTotal, ChromaDB) are injected via constructor or FastAPI `Depends`, making every component unit-testable without network or disk.
+- **Mocked test suite** — 334 deterministic tests, no external calls. External APIs are replaced by `MagicMock` sessions with canned responses.
+- **On-premise by design** — all LLM inference and vector search run locally. Alert data never leaves the host.
+- **Multi-agent development harness** — built with a Claude Code orchestrator + specialized subagents (builder, reviewer, scribe). Per-component SOPs in [`workflows/`](workflows/), architectural decisions in [`docs/`](docs/).
 
 ---
 
 ## Setup
 
+### Docker (recommended for production)
+
 ```bash
 git clone https://github.com/mateoullaa/prism.git && cd prism
-python -m venv .venv && source .venv/Scripts/activate   # Git Bash on Windows
-pip install -r requirements.txt
-cp .env.example .env   # fill in API keys and the Ollama host
-bash init.sh           # health check
-```
-
-## Run with Docker (recommended)
-
-```bash
+cp .env.example .env        # fill in API keys + Ollama host
 docker compose up -d
-curl -s http://localhost:8000/health
+curl http://localhost:8000/health
 ```
 
-> Ollama must be running on the host. The container reaches it via `http://host-gateway:11434`
-> (configured in `docker-compose.yml`).
+> Ollama must be running on the host. The container reaches it via `http://host-gateway:11434`.
 
-## Run locally (development)
+### Local development
 
 ```bash
-python main.py            # serves on SERVICE_HOST:SERVICE_PORT (default 0.0.0.0:8000)
-# then POST a Wazuh alert:
-curl -X POST localhost:8000/analyze -H "Content-Type: application/json" \
+python -m venv .venv && source .venv/Scripts/activate   # Git Bash / Windows
+pip install -r requirements.txt
+cp .env.example .env
+bash init.sh                # health check
+python main.py              # serves on 0.0.0.0:8000
+```
+
+### Send an alert
+
+```bash
+curl -X POST localhost:8000/analyze \
+     -H "Content-Type: application/json" \
      -d @data/sample_alerts/apache_attack.json
 ```
 
-## Tests
+### Run tests
 
 ```bash
-pytest -q
+pytest -q   # 334 tests, ~30s, no network
 ```
 
-## Structure
+---
+
+## Repository structure
 
 ```
-main.py                   FastAPI service — POST /analyze pipeline orchestration
-Dockerfile                Production container image (python:3.12-slim)
-docker-compose.yml        Service definition: port 8000, volumes, host-gateway for Ollama
-tools/                    Execution tools (parser, enricher, reasoner, router, logger)
-workflows/                Per-component SOPs (WAT)
-tests/                    Deterministic tests for each tool (282 total)
-docs/                     Architecture and conventions
-data/sample_alerts/       Anonymized alert fixtures per type (ssh, apache, firewall…)
-.claude/                  Dev harness: subagents, commands, hooks
+main.py                   FastAPI service — full pipeline orchestration
+Dockerfile                Production image (python:3.12-slim)
+docker-compose.yml        Port 8000, bind-mounts for metrics/ and chroma_db/
+tools/
+  parser.py               Alert classification + IOC extraction
+  enricher.py             VirusTotal + AbuseIPDB + OTX (parallel, cached)
+  reasoner.py             Ollama LLM client + prompt builder + JSON validation
+  router.py               Verdict → TheHive routing decision
+  logger.py               CSV audit trail (every alert, including discarded)
+  retriever.py            ChromaDB RAG — embed, query, index, auto-FP logic
+  metrics.py              Audit log statistics for dashboard
+scripts/
+  backfill_chroma.py      One-time CSV → ChromaDB migration
+  validate_threshold.py   Leave-one-out CV for AUTO_FP_THRESHOLD selection
+tests/                    334 deterministic tests (mocked external dependencies)
+data/sample_alerts/       Anonymized alert fixtures per type
+docs/                     Architecture + conventions
+workflows/                Per-component SOPs
+.claude/                  Dev harness: subagents, slash commands, hooks
 ```
+
+---
+
+## Environment variables
+
+Copy `.env.example` to `.env` and fill in:
+
+| Variable | Description |
+|----------|-------------|
+| `VT_API_KEY` | VirusTotal API key |
+| `ABUSEIPDB_API_KEY` | AbuseIPDB API key |
+| `OTX_API_KEY` | OTX AlienVault API key |
+| `OLLAMA_HOST` | Ollama base URL (e.g. `http://localhost:11434`) |
+| `OLLAMA_MODEL` | Model name (e.g. `qwen2.5:3b`) |
+| `RAG_ENABLED` | Enable ChromaDB retriever (`true`/`false`) |
+| `RAG_SHADOW_MODE` | Log auto-FP decisions without acting (`true`/`false`) |
+| `AUTO_FP_THRESHOLD` | Cosine similarity threshold for auto-FP (default `0.92`) |
+
+Full variable list and defaults in [`.env.example`](.env.example).
+
+---
 
 © 2026 Mateo Ulla · Sample alerts are anonymized; no real or company data is included.
