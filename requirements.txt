@@ -4,3 +4,4 @@ requests>=2.31
 python-dotenv>=1.0
 pytest>=8.0
 httpx>=0.27        # transport backend required by fastapi.testclient (starlette)
+chromadb>=0.5      # v2.2 RAG: local vector store (embeddings supplied by Ollama, not Chroma)

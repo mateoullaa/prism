@@ -75,7 +75,7 @@ _None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-v2.1 COMPLETE. Next: v2.2 (RAG phase — runtime learning with ChromaDB + embeddings) or additional alert type coverage (e.g. virustotal file hash, Windows logon enrichment).
+v2.2 (shadow-mode RAG) is in rollout: RAG_ENABLED=true on production server, RAG_SHADOW_MODE=true initially. Deploy: `ollama pull nomic-embed-text`, run backfill_chroma.py + validate_threshold.py to tune AUTO_FP_THRESHOLD, flip RAG_SHADOW_MODE=false after precision validated in shadow logs. Next: additional alert type coverage (virustotal file hash, Windows logon enrichment) or v2.3 (automatic FP filtering via real metrics).
 
 ## Technical debt / pending (post-sanitization)
 
@@ -116,6 +116,20 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - Shuffle integration validated in production: TRUE_POSITIVE→case created, NEEDS_REVIEW→alert created, FALSE_POSITIVE→CSV discard only
   - 282 tests passing, 0 regressions
 
+## v2.2 — RAG Runtime Learning (branch v2-exploration)
+
+[x] **v2.2 COMPLETE & SHADOW-MODE DEPLOYED**
+  - Embeddings: Ollama `nomic-embed-text` via /api/embeddings (reuses deployed Ollama host; no heavy ML deps)
+  - Deployment: ChromaDB embedded (PersistentClient at ./chroma_db, bind-mounted like metrics/); offline-safe, no separate container
+  - Function 1 (auto-FP): similarity ≥AUTO_FP_THRESHOLD (default 0.92) triggers auto-classification FALSE_POSITIVE WITHOUT LLM (saves ~10-20s); gated RAG_SHADOW_MODE=true (shadow logs "would_be=auto_fp" but doesn't act); conservative (never auto-classifies to TP/NEEDS_REVIEW)
+  - Function 2 (context): N most similar past alerts aggregated ("Of N similar alerts: X FP, Y TP, Z NEEDS_REVIEW") → injected into reasoner prompt as enrichment signal (live immediately, low risk)
+  - Feedback-loop guard: only real LLM verdicts (reasoner_meta.status=="ok") indexed back; auto-classified + fallback verdicts never stored
+  - Fail-safe design: tools/retriever.py never raises; if Chroma/embeddings/RAG unavailable → returns empty → v2.1 behavior
+  - Audit trail: auto-classified alerts use existing CSV columns (status="auto_fp", model="rag-similarity:nomic-embed-text", reason with score+precedent count)
+  - Scripts: backfill_chroma.py (migration from metrics/triage_log.csv), validate_threshold.py (leave-one-out CV for AUTO_FP_THRESHOLD)
+  - Tests: 27 retriever tests + 7 new integration/prompt tests; 309 passing (up from 302)
+  - Deploy TODO (production server): ollama pull nomic-embed-text; scripts/backfill_chroma.py; scripts/validate_threshold.py (confirm 0 wrong discards); set RAG_ENABLED=true, RAG_SHADOW_MODE=true; monitor shadow logs; flip RAG_SHADOW_MODE=false when precision validated
+
 ## Follow-up items (post-Shuffle, v2.1)
 
 - [x] MITRE mapping: fixed via Python pre-evaluation (_evaluate_mitre()) — same design principle as enrichment thresholds. 269 tests passing.
@@ -129,9 +143,9 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - .dockerignore: excluye .venv/, tests/, .env, .git/
   - Validado end-to-end desde Shuffle: Apache TRUE_POSITIVE → TheHive caso + observable ✅
 
-## v2 ideas (DO NOT implement now)
+## v2.x ideas (DO NOT implement now)
 
-- Runtime learning: RAG + embeddings + ChromaDB (coordinate with the team).
-- [x] Direct case creation in TheHive — implemented via Execute Python node in Shuffle (POST /api/v1/case directly, bypasses Shuffle's broken Create case node).
-- Automatic FP filtering based on real v1 metrics.
+- [x] **v2.2: Runtime learning** — RAG + embeddings + ChromaDB. Implemented in shadow-mode (see v2.2 section above).
+- [x] **v2.1: Direct case creation in TheHive** — implemented via Execute Python node in Shuffle (POST /api/v1/case directly, bypasses Shuffle's broken Create case node).
+- Automatic FP filtering based on real v1 metrics (v2.3+).
 - Visualizations (matplotlib) / metrics dashboard.

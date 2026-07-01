@@ -4,6 +4,7 @@ data/real_alerts/
 # Raw, non-anonymized alert captures (real company data) live directly under data/
 data/*_real.json
 metrics/
+chroma_db/
 *.csv
 __pycache__/
 *.py[cod]

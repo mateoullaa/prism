@@ -55,10 +55,18 @@ if str(_REPO_ROOT) not in sys.path:
 
 import tools.enricher as _enricher_module  # noqa: E402
 import tools.reasoner as _reasoner_module  # noqa: E402
+import tools.retriever as _retriever_module  # noqa: E402
 from tools.enricher import enrich  # noqa: E402
 from tools.logger import log_alert  # noqa: E402
 from tools.parser import parse_alert  # noqa: E402
 from tools.reasoner import reason  # noqa: E402
+from tools.retriever import (  # noqa: E402
+    auto_fp_model_label,
+    decide_auto_fp,
+    index_alert,
+    retrieve_similar,
+    shadow_mode,
+)
 from tools.router import route  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -74,6 +82,9 @@ from tools.router import route  # noqa: E402
 
 _ENRICHER_CLIENTS = _enricher_module._build_default_clients()
 _OLLAMA_CLIENT = _reasoner_module._build_default_client()
+# v2.2 RAG retriever — None when RAG_ENABLED is falsy or Chroma/embeddings are
+# unavailable, in which case the pipeline degrades to exactly v2.1 behavior.
+_RETRIEVER = _retriever_module._build_default_retriever()
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +99,13 @@ def get_pipeline() -> dict:
     mock clients without touching module globals or real network services.
 
     Returns:
-        Dict with keys ``"enricher_clients"`` and ``"ollama_client"``.
+        Dict with keys ``"enricher_clients"``, ``"ollama_client"``, and
+        ``"retriever"`` (which may be ``None`` when RAG is disabled).
     """
     return {
         "enricher_clients": _ENRICHER_CLIENTS,
         "ollama_client": _OLLAMA_CLIENT,
+        "retriever": _RETRIEVER,
     }
 
 
@@ -675,7 +688,37 @@ def analyze(
     try:
         parsed = parse_alert(payload)
         enrich(parsed, clients=deps["enricher_clients"])
-        reason(parsed, client=deps["ollama_client"])
+
+        # v2.2 RAG — retrieve similar historical alerts (no-op when retriever is
+        # None: RAG disabled or Chroma/embeddings unavailable → behaves as v2.1).
+        retriever = deps.get("retriever")
+        rag = retrieve_similar(parsed, retriever=retriever)
+        # Consumed by build_prompt(); None → the prompt is unchanged.
+        parsed["similar_cases"] = rag["summary"]
+
+        # v2.2 RAG — conservative auto-classification (function 1). Only ever
+        # short-circuits to FALSE_POSITIVE on unanimous high-confidence precedent.
+        decision = decide_auto_fp(rag["hits"])
+        if decision is not None and not shadow_mode():
+            parsed["verdict"] = decision["verdict"]
+            parsed["reasoner_meta"] = {
+                "status": "auto_fp",
+                "fallback_reason": None,
+                "model": auto_fp_model_label(),
+                "latency_ms": 0,
+                "score": decision["score"],
+                "precedent_count": decision["precedent_count"],
+            }
+        else:
+            if decision is not None:
+                # Shadow mode: record what we WOULD have decided, defer to the LLM.
+                _logger.info(
+                    "RAG shadow: would_be=auto_fp score=%.3f precedents=%d",
+                    decision["score"],
+                    decision["precedent_count"],
+                )
+            reason(parsed, client=deps["ollama_client"])
+
         route(parsed)
         parsed["observables"] = _build_observables(parsed)
         parsed["tags"] = _build_tags(parsed)
@@ -683,7 +726,13 @@ def analyze(
         parsed["case_description"] = _build_case_description(parsed)
         parsed["full_description"] = parsed.get("case_description", "")
         parsed["severity_num"] = _build_severity_num(parsed)
-        log_alert(parsed)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        log_alert(parsed, timestamp=timestamp)
+
+        # v2.2 RAG — grow the corpus, but ONLY from real LLM verdicts. Auto-FP and
+        # fallback verdicts are excluded to avoid a self-reinforcing feedback loop.
+        if retriever is not None and parsed.get("reasoner_meta", {}).get("status") == "ok":
+            index_alert(parsed, retriever=retriever, timestamp=timestamp)
         return parsed
 
     except Exception as exc:  # noqa: BLE001 — intentional last-resort catch

@@ -608,6 +608,22 @@ def test_build_prompt_injects_null_mitre_for_known_fp_candidate():
     assert "T1078" not in prompt
 
 
+def test_build_prompt_injects_historical_precedents_when_present():
+    """v2.2 RAG: similar_cases summary is surfaced as a Historical precedents section."""
+    parsed = parse_alert(load_fixture("ssh_attack.json"))
+    parsed["similar_cases"] = "Of 5 similar past alerts: 5 FALSE_POSITIVE, 0 TRUE_POSITIVE, 0 NEEDS_REVIEW."
+    prompt = build_prompt(parsed)
+    assert "Historical precedents:" in prompt
+    assert "5 FALSE_POSITIVE" in prompt
+
+
+def test_build_prompt_omits_precedents_when_absent():
+    """Without similar_cases the prompt is unchanged (RAG-disabled compatibility)."""
+    parsed = parse_alert(load_fixture("ssh_attack.json"))
+    assert "similar_cases" not in parsed
+    assert "Historical precedents:" not in build_prompt(parsed)
+
+
 # ---------------------------------------------------------------------------
 # 11. Pipeline never breaks — reason({}) must not raise
 # ---------------------------------------------------------------------------

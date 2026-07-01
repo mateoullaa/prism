@@ -8,7 +8,7 @@ RUN grep -v '^pytest' requirements.txt > /tmp/prod-requirements.txt && \
 
 COPY . .
 
-RUN mkdir -p metrics
+RUN mkdir -p metrics chroma_db
 
 EXPOSE 8000
 

@@ -24,9 +24,10 @@ Full design details → `docs/ARCHITECTURE.md`.
 
 ## Scope (respect the boundaries)
 
-- **v1 (NOW):** webhook + intelligence analysis → returns to Shuffle. NOTHING else.
-- **v2 (DO NOT touch):** case creation in TheHive, runtime learning (RAG/ChromaDB),
-  automatic FP filtering. If a task is v2, note it in `PROGRESS.md` and don't implement it.
+- **v1 (LIVE):** webhook + intelligence analysis → returns to Shuffle.
+- **v2.1 (COMPLETE):** Apache alert type, MITRE mapping, risk_score enforcement. Live in production.
+- **v2.2 (SHADOW-MODE):** RAG runtime learning with ChromaDB + embeddings + auto-FP classification. Deployed in shadow mode (RAG_SHADOW_MODE=true by default; auto-classification logs "would_be" but doesn't act until precision validated in production).
+- **v2.x (DO NOT implement):** Automatic FP filtering via real metrics, additional enrichment (file hash, logon). If a task is v2.x future, note it in `PROGRESS.md` and do not implement.
 
 ## Agent team (delegate, don't do everything)
 

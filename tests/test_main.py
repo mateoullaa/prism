@@ -179,12 +179,14 @@ def _make_enricher_clients() -> tuple:
 def _pipeline_override(
     ollama_client: OllamaClient,
     enricher_clients: tuple,
+    retriever=None,
 ):
     """Return a callable suitable for app.dependency_overrides[get_pipeline].
 
     Args:
         ollama_client: Mock OllamaClient to inject.
         enricher_clients: (vt_mock, abuse_mock) tuple to inject.
+        retriever: Optional mock RAG retriever (None → RAG disabled, v2.1 behavior).
 
     Returns:
         Zero-argument callable that returns the deps dict.
@@ -194,6 +196,7 @@ def _pipeline_override(
         return {
             "enricher_clients": enricher_clients,
             "ollama_client": ollama_client,
+            "retriever": retriever,
         }
 
     return _override
@@ -1349,3 +1352,119 @@ class TestSeverityNum:
 
     def test_missing_verdict_defaults_medium(self):
         assert _build_severity_num({}) == 2
+
+
+# ---------------------------------------------------------------------------
+# v2.2 RAG integration — retriever injected via the pipeline override
+# ---------------------------------------------------------------------------
+
+
+def _rag_hit(similarity: float, verdict: str = "FALSE_POSITIVE", confidence: str = "HIGH") -> dict:
+    return {
+        "similarity": similarity,
+        "verdict": verdict,
+        "confidence": confidence,
+        "alert_type": "windows_event",
+        "rule_id": "60602",
+        "mitre_id": "",
+        "timestamp": "2026-06-17T16:27:32+00:00",
+    }
+
+
+def _mock_retriever(hits: list) -> MagicMock:
+    retriever = MagicMock()
+    retriever.query.return_value = hits
+    retriever.index.return_value = True
+    return retriever
+
+
+def test_rag_disabled_noop_preserves_v21_behavior(monkeypatch, tmp_path) -> None:
+    """retriever=None (RAG disabled) → verdict comes from the LLM, no similar_cases."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    ollama = _make_ollama_client(_FP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), None)
+    try:
+        resp = TestClient(app).post("/analyze", json=load_fixture("windows_spp_error.json"))
+        body = resp.json()
+        assert resp.status_code == 200
+        assert body["verdict"]["verdict"] == "FALSE_POSITIVE"
+        assert body["reasoner_meta"]["status"] == "ok"
+        assert body.get("similar_cases") is None
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+def test_rag_context_summary_injected(monkeypatch, tmp_path) -> None:
+    """A retriever with hits puts a verdict aggregate into similar_cases."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    ollama = _make_ollama_client(_FP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    retriever = _mock_retriever([
+        _rag_hit(0.99), _rag_hit(0.95), _rag_hit(0.90, "TRUE_POSITIVE"),
+    ])
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), retriever)
+    try:
+        resp = TestClient(app).post("/analyze", json=load_fixture("windows_spp_error.json"))
+        body = resp.json()
+        assert body["similar_cases"] == (
+            "Of 3 similar past alerts: 2 FALSE_POSITIVE, 1 TRUE_POSITIVE, 0 NEEDS_REVIEW."
+        )
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+def test_rag_shadow_mode_does_not_auto_classify(monkeypatch, tmp_path) -> None:
+    """In shadow mode, even unanimous HIGH-confidence FP precedents do NOT
+    short-circuit the LLM: the verdict still comes from the reasoner."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    monkeypatch.setenv("RAG_SHADOW_MODE", "true")
+    # LLM returns TP — if shadow wrongly auto-classified, we'd see FALSE_POSITIVE.
+    ollama = _make_ollama_client(_TP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    retriever = _mock_retriever([_rag_hit(0.99) for _ in range(5)])
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), retriever)
+    try:
+        resp = TestClient(app).post("/analyze", json=load_fixture("windows_spp_error.json"))
+        body = resp.json()
+        assert body["verdict"]["verdict"] == "TRUE_POSITIVE"
+        assert body["reasoner_meta"]["status"] == "ok"  # LLM ran, not auto_fp
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+def test_rag_live_auto_classifies_on_unanimous_fp(monkeypatch, tmp_path) -> None:
+    """With shadow mode OFF, unanimous HIGH-confidence FP precedents auto-classify
+    as FALSE_POSITIVE WITHOUT invoking the LLM (status=auto_fp)."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    monkeypatch.setenv("RAG_SHADOW_MODE", "false")
+    # LLM is wired to TP; if it were (wrongly) consulted we'd see TRUE_POSITIVE.
+    ollama = _make_ollama_client(_TP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    retriever = _mock_retriever([_rag_hit(0.99) for _ in range(5)])
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), retriever)
+    try:
+        resp = TestClient(app).post("/analyze", json=load_fixture("windows_spp_error.json"))
+        body = resp.json()
+        assert body["verdict"]["verdict"] == "FALSE_POSITIVE"
+        assert body["reasoner_meta"]["status"] == "auto_fp"
+        assert body["reasoner_meta"]["model"].startswith("rag-similarity:")
+        assert body["routing"]["action"] == "discard"
+        # auto_fp verdicts must NOT be indexed back into the corpus (no feedback loop).
+        retriever.index.assert_not_called()
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)
+
+
+def test_rag_indexes_only_real_llm_verdicts(monkeypatch, tmp_path) -> None:
+    """A genuine LLM verdict (status=ok) is indexed into the corpus."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "triage.csv"))
+    ollama = _make_ollama_client(_TP_VERDICT)
+    vt, abuse, otx = _make_enricher_clients()
+    retriever = _mock_retriever([])  # no precedents → LLM path
+    app.dependency_overrides[get_pipeline] = _pipeline_override(ollama, (vt, abuse, otx), retriever)
+    try:
+        TestClient(app).post("/analyze", json=load_fixture("firewall_block.json"))
+        retriever.index.assert_called_once()
+    finally:
+        app.dependency_overrides.pop(get_pipeline, None)

@@ -11,5 +11,6 @@ services:
     volumes:
       - ./metrics:/app/metrics
       - ./config:/app/config
+      - ./chroma_db:/app/chroma_db   # v2.2 RAG: persistent ChromaDB store
     environment:
       OLLAMA_HOST: http://host-gateway:11434

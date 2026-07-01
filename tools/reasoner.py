@@ -216,6 +216,18 @@ def build_prompt(parsed: dict) -> str:
     if context_lines:
         parts.append("Context:\n" + "\n".join(context_lines))
 
+    # Historical precedents (v2.2 RAG) — an aggregate of similar past verdicts,
+    # used as an extra signal exactly like enrichment.  Absent → section omitted,
+    # so the prompt is byte-for-byte unchanged when RAG is disabled.
+    similar_cases = parsed.get("similar_cases")
+    if similar_cases:
+        parts.append(
+            "Historical precedents: "
+            + str(similar_cases)
+            + " Treat this as a supporting signal, not a substitute for the "
+            "evidence above; apply the same conservative bias."
+        )
+
     # FP candidate hint for the dominant known-FP Windows SPP rules
     # (60602 single events / 61061 their aggregation — same root cause).
     if parsed.get("is_known_fp_candidate"):
