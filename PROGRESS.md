@@ -75,7 +75,7 @@ _None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-v2.2 (shadow-mode RAG) is in rollout: RAG_ENABLED=true on production server, RAG_SHADOW_MODE=true initially. Deploy: `ollama pull nomic-embed-text`, run backfill_chroma.py + validate_threshold.py to tune AUTO_FP_THRESHOLD, flip RAG_SHADOW_MODE=false after precision validated in shadow logs. Next: additional alert type coverage (virustotal file hash, Windows logon enrichment) or v2.3 (automatic FP filtering via real metrics).
+v2.2 is complete and live in shadow mode. The only pending action is growing the corpus to ≥200 alerts, then running validate_threshold.py and flipping RAG_SHADOW_MODE=false to activate auto-classification. Corpus grows with each new alert ingested; monitor shadow logs in metrics/triage_log.csv for precision metrics before flipping. No code changes required.
 
 ## Technical debt / pending (post-sanitization)
 
@@ -118,13 +118,17 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 
 ## v2.2 — RAG Runtime Learning (branch v2-exploration)
 
-[x] **v2.2 LIVE IN PRODUCTION (2026-07-01, shadow mode)**
-  - Production backfill: 31 alerts indexed from metrics/triage_log.csv (18 TRUE_POSITIVE, 9 NEEDS_REVIEW, 4 FALSE_POSITIVE); corpus foundation established but still small (auto-FP activation deferred until growth)
-  - Function 2 (context injection): LIVE — N similar alerts aggregated into reasoner prompt ("Of N similar alerts: X FP, Y TP, Z NEEDS_REVIEW"); zero risk, immediate benefit
-  - Function 1 (auto-FP): SHADOW MODE — logs "would_be=auto_fp" decisions without acting; validates similarity threshold before production activation
-  - Infrastructure: ChromaDB (./chroma_db bind-mount), Ollama nomic-embed-text embeddings, 309 tests passing (282 parser/enricher/reasoner/router/logger/main + 27 retriever)
-  - Docker: RAG_ENABLED, RAG_SHADOW_MODE env vars in docker-compose.yml; zero network overhead (Chroma embedded, not containerized)
-  - Next step: monitor shadow logs for precision; backfill corpus grows with each new alert; when corpus ≥200 alerts → validate_threshold.py (leave-one-out CV) → flip RAG_SHADOW_MODE=false
+[x] **v2.2 COMPLETE & PRODUCTION VALIDATED (2026-07-01, shadow mode)**
+  - retrieve_similar() → similar_cases injected into reasoner prompt ("Of N similar alerts: X FP, Y TP, Z NEEDS_REVIEW")
+  - decide_auto_fp() → shadow mode logging (without cutting verdicts); AUTO_FP_THRESHOLD=0.92 (similarity gate)
+  - index_alert() → incremental ingestion post-routing (only real LLM verdicts, status=="ok"); feedback-loop guard active
+  - correlation_summary → generated via build_correlation_summary(), returns English text (analyst-facing)
+  - full_description → automatic concatenation of case_description + correlation_summary; None when RAG disabled or no hits (backward compatible)
+  - ChromaDB embedded in-process (PersistentClient at ./chroma_db, bind-mounted); Ollama nomic-embed-text via /api/embeddings (no ML deps in image)
+  - Backfill: 31 alerts indexed (18 TP, 9 NR, 4 FP); corpus foundation established
+  - Shadow validation: auto-classification (Function 1) awaiting corpus growth to ≥200 alerts; context injection (Function 2) live immediately
+  - Test suite: 318 tests (282 prior + 27 retriever + 9 correlation_summary), 0 regressions
+  - Validated end-to-end: Windows FP detected (auto-similar), SSH NR contextualized, Apache TP enriched; all paths confirmed working
 
 [x] **v2.2 COMPLETE & SHADOW-MODE DEPLOYED** (implementation details)
   - Embeddings: Ollama `nomic-embed-text` via /api/embeddings (reuses deployed Ollama host; no heavy ML deps)
