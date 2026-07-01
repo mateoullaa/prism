@@ -362,7 +362,7 @@ def test_correlation_summary_all_fp():
     assert summary is not None
     assert "FALSE_POSITIVE" in summary
     assert "5/5" in summary
-    assert "benigno" in summary.lower()
+    assert "benign" in summary.lower()
 
 
 def test_correlation_summary_all_tp():
@@ -370,13 +370,13 @@ def test_correlation_summary_all_tp():
     summary = build_correlation_summary(hits)
     assert "TRUE_POSITIVE" in summary
     assert "5/5" in summary
-    assert "riesgo" in summary.lower()
+    assert "risk" in summary.lower()
 
 
 def test_correlation_summary_mixed():
     hits = [_cs_hit("TRUE_POSITIVE"), _cs_hit("FALSE_POSITIVE"), _cs_hit("NEEDS_REVIEW")]
     summary = build_correlation_summary(hits)
-    assert "mixto" in summary.lower() or "señal" in summary.lower()
+    assert "mixed" in summary.lower() or "ambiguous" in summary.lower()
 
 
 def test_correlation_summary_majority_tp():

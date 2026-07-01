@@ -725,9 +725,13 @@ def analyze(
         parsed["tags"] = _build_tags(parsed)
         parsed["key_factors"] = _build_key_factors(parsed)
         parsed["case_description"] = _build_case_description(parsed)
-        parsed["full_description"] = parsed.get("case_description", "")
         parsed["severity_num"] = _build_severity_num(parsed)
         parsed["correlation_summary"] = build_correlation_summary(rag["hits"])
+        case_desc = parsed.get("case_description", "")
+        corr = parsed.get("correlation_summary")
+        parsed["full_description"] = (
+            case_desc + "\n\n" + corr if corr else case_desc
+        )
         timestamp = datetime.now(timezone.utc).isoformat()
         log_alert(parsed, timestamp=timestamp)
 

@@ -288,36 +288,36 @@ def build_correlation_summary(hits: list[dict]) -> str | None:
     # Dominant-FP pattern
     if fp == total:
         return (
-            f"Patrón recurrente benigno: {fp}/{total} precedentes similares son "
-            f"FALSE_POSITIVE (similitud máx. {score_pct}%). "
-            f"Sin incidentes reales registrados para este patrón."
+            f"Recurring benign pattern: {fp}/{total} similar past alerts were "
+            f"FALSE_POSITIVE (max similarity {score_pct}%). "
+            f"No real incidents recorded for this pattern."
         )
     # Dominant-TP pattern
     if tp == total:
         return (
-            f"Patrón de riesgo confirmado: {tp}/{total} precedentes similares son "
-            f"TRUE_POSITIVE (similitud máx. {score_pct}%). "
-            f"Alta probabilidad de incidente real."
+            f"Confirmed risk pattern: {tp}/{total} similar past alerts were "
+            f"TRUE_POSITIVE (max similarity {score_pct}%). "
+            f"High likelihood of a real incident."
         )
     # Strong TP majority (≥60%)
     if tp / total >= 0.6:
         return (
-            f"Historial con señal real predominante: {tp}/{total} TRUE_POSITIVE, "
+            f"Predominantly real signal: {tp}/{total} TRUE_POSITIVE, "
             f"{fp}/{total} FALSE_POSITIVE, {nr}/{total} NEEDS_REVIEW "
-            f"(similitud máx. {score_pct}%). Revisar enriquecimiento de IOCs."
+            f"(max similarity {score_pct}%). Review IOC enrichment."
         )
     # Strong FP majority (≥60%)
     if fp / total >= 0.6:
         return (
-            f"Historial mayoritariamente benigno: {fp}/{total} FALSE_POSITIVE, "
+            f"Predominantly benign history: {fp}/{total} FALSE_POSITIVE, "
             f"{tp}/{total} TRUE_POSITIVE, {nr}/{total} NEEDS_REVIEW "
-            f"(similitud máx. {score_pct}%). Aplicar criterio conservador."
+            f"(max similarity {score_pct}%). Apply conservative criteria."
         )
     # Mixed signal
     return (
-        f"Historial mixto: {tp}/{total} TRUE_POSITIVE, {fp}/{total} FALSE_POSITIVE, "
-        f"{nr}/{total} NEEDS_REVIEW (similitud máx. {score_pct}%). "
-        f"Señal ambigua — requiere revisión manual."
+        f"Mixed history: {tp}/{total} TRUE_POSITIVE, {fp}/{total} FALSE_POSITIVE, "
+        f"{nr}/{total} NEEDS_REVIEW (max similarity {score_pct}%). "
+        f"Ambiguous signal — manual review required."
     )
 
 
