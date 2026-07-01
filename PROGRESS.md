@@ -118,7 +118,15 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 
 ## v2.2 — RAG Runtime Learning (branch v2-exploration)
 
-[x] **v2.2 COMPLETE & SHADOW-MODE DEPLOYED**
+[x] **v2.2 LIVE IN PRODUCTION (2026-07-01, shadow mode)**
+  - Production backfill: 31 alerts indexed from metrics/triage_log.csv (18 TRUE_POSITIVE, 9 NEEDS_REVIEW, 4 FALSE_POSITIVE); corpus foundation established but still small (auto-FP activation deferred until growth)
+  - Function 2 (context injection): LIVE — N similar alerts aggregated into reasoner prompt ("Of N similar alerts: X FP, Y TP, Z NEEDS_REVIEW"); zero risk, immediate benefit
+  - Function 1 (auto-FP): SHADOW MODE — logs "would_be=auto_fp" decisions without acting; validates similarity threshold before production activation
+  - Infrastructure: ChromaDB (./chroma_db bind-mount), Ollama nomic-embed-text embeddings, 309 tests passing (282 parser/enricher/reasoner/router/logger/main + 27 retriever)
+  - Docker: RAG_ENABLED, RAG_SHADOW_MODE env vars in docker-compose.yml; zero network overhead (Chroma embedded, not containerized)
+  - Next step: monitor shadow logs for precision; backfill corpus grows with each new alert; when corpus ≥200 alerts → validate_threshold.py (leave-one-out CV) → flip RAG_SHADOW_MODE=false
+
+[x] **v2.2 COMPLETE & SHADOW-MODE DEPLOYED** (implementation details)
   - Embeddings: Ollama `nomic-embed-text` via /api/embeddings (reuses deployed Ollama host; no heavy ML deps)
   - Deployment: ChromaDB embedded (PersistentClient at ./chroma_db, bind-mounted like metrics/); offline-safe, no separate container
   - Function 1 (auto-FP): similarity ≥AUTO_FP_THRESHOLD (default 0.92) triggers auto-classification FALSE_POSITIVE WITHOUT LLM (saves ~10-20s); gated RAG_SHADOW_MODE=true (shadow logs "would_be=auto_fp" but doesn't act); conservative (never auto-classifies to TP/NEEDS_REVIEW)
@@ -127,8 +135,7 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - Fail-safe design: tools/retriever.py never raises; if Chroma/embeddings/RAG unavailable → returns empty → v2.1 behavior
   - Audit trail: auto-classified alerts use existing CSV columns (status="auto_fp", model="rag-similarity:nomic-embed-text", reason with score+precedent count)
   - Scripts: backfill_chroma.py (migration from metrics/triage_log.csv), validate_threshold.py (leave-one-out CV for AUTO_FP_THRESHOLD)
-  - Tests: 27 retriever tests + 7 new integration/prompt tests; 309 passing (up from 302)
-  - Deploy TODO (production server): ollama pull nomic-embed-text; scripts/backfill_chroma.py; scripts/validate_threshold.py (confirm 0 wrong discards); set RAG_ENABLED=true, RAG_SHADOW_MODE=true; monitor shadow logs; flip RAG_SHADOW_MODE=false when precision validated
+  - Tests: 27 retriever tests + 7 new integration/prompt tests; 309 passing (up from 282)
 
 ## Follow-up items (post-Shuffle, v2.1)
 
