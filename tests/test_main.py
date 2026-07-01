@@ -215,6 +215,30 @@ def test_health() -> None:
     assert resp.json() == {"status": "ok"}
 
 
+def test_metrics_endpoint_returns_valid_shape(monkeypatch, tmp_path) -> None:
+    """GET /metrics returns 200 with the expected metrics keys."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "empty.csv"))
+    resp = TestClient(app).get("/metrics")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "total" in body
+    assert "verdicts" in body
+    assert "per_day" in body
+    assert "top_rules" in body
+    assert body["total"] == 0  # empty log → zero metrics
+
+
+def test_dashboard_endpoint_returns_html(monkeypatch, tmp_path) -> None:
+    """GET /dashboard returns 200 HTML containing Chart.js and key elements."""
+    monkeypatch.setenv("LOG_PATH", str(tmp_path / "empty.csv"))
+    resp = TestClient(app).get("/dashboard")
+    assert resp.status_code == 200
+    assert "text/html" in resp.headers["content-type"]
+    assert "Chart.js" in resp.text or "chart.js" in resp.text
+    assert "Prism SOC Dashboard" in resp.text
+    assert "chartVerdict" in resp.text
+
+
 # ---------------------------------------------------------------------------
 # Test 1: Happy path — TRUE_POSITIVE
 # ---------------------------------------------------------------------------

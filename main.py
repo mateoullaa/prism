@@ -31,9 +31,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import json
+
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Body, Depends, FastAPI
+from fastapi.responses import HTMLResponse
 
 # ---------------------------------------------------------------------------
 # Bootstrap: env vars + logging
@@ -68,6 +71,7 @@ from tools.retriever import (  # noqa: E402
     retrieve_similar,
     shadow_mode,
 )
+from tools.metrics import compute_metrics  # noqa: E402
 from tools.router import route  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -137,6 +141,197 @@ def health() -> dict:
         ``{"status": "ok"}`` always.
     """
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+def get_metrics() -> dict:
+    """Return structured triage statistics from the audit log as JSON.
+
+    Reads the CSV pointed to by LOG_PATH.  Returns an all-zero dict when the
+    file is missing or empty so the caller always gets a valid shape.
+    """
+    return compute_metrics()
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def get_dashboard() -> str:
+    """Render the Prism SOC metrics dashboard as an HTML page.
+
+    Self-contained HTML: Chart.js loaded from CDN, data embedded as inline JSON.
+    No additional dependencies beyond what is already installed.
+    """
+    return _render_dashboard(compute_metrics())
+
+
+def _render_dashboard(m: dict) -> str:
+    """Build the full dashboard HTML from a metrics dict."""
+    data = json.dumps(m)
+    date_range = (
+        f"{m['first_alert']} → {m['last_alert']}" if m["first_alert"] else "No data yet"
+    )
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prism SOC Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{background:#0f172a;color:#e2e8f0;font-family:system-ui,sans-serif;padding:24px}}
+  h1{{font-size:1.6rem;font-weight:700;color:#f8fafc}}
+  .subtitle{{color:#94a3b8;font-size:.9rem;margin-top:4px}}
+  .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:24px 0}}
+  .card{{background:#1e293b;border-radius:10px;padding:18px;border:1px solid #334155}}
+  .card .label{{font-size:.75rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em}}
+  .card .value{{font-size:1.7rem;font-weight:700;margin-top:6px}}
+  .card .value.green{{color:#4ade80}}
+  .card .value.red{{color:#f87171}}
+  .card .value.yellow{{color:#facc15}}
+  .card .value.blue{{color:#60a5fa}}
+  .card .value.gray{{color:#94a3b8}}
+  .charts{{display:grid;grid-template-columns:1fr 2fr;gap:16px;margin-bottom:16px}}
+  .charts3{{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:16px}}
+  .panel{{background:#1e293b;border-radius:10px;padding:20px;border:1px solid #334155}}
+  .panel h2{{font-size:.85rem;color:#94a3b8;text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px}}
+  table{{width:100%;border-collapse:collapse;font-size:.85rem}}
+  th{{text-align:left;padding:8px 10px;color:#94a3b8;border-bottom:1px solid #334155;font-weight:600}}
+  td{{padding:8px 10px;border-bottom:1px solid #1e293b}}
+  tr:last-child td{{border-bottom:none}}
+  tr:hover td{{background:#263044}}
+  .badge{{display:inline-block;padding:2px 8px;border-radius:4px;font-size:.75rem;font-weight:600}}
+  .tp{{background:#7f1d1d;color:#fca5a5}}
+  .fp{{background:#14532d;color:#86efac}}
+  .nr{{background:#713f12;color:#fde68a}}
+  canvas{{max-height:240px}}
+</style>
+</head>
+<body>
+<h1>Prism SOC Dashboard</h1>
+<p class="subtitle">{date_range} &nbsp;·&nbsp; {m["total"]} alerts processed</p>
+
+<div class="cards">
+  <div class="card">
+    <div class="label">Total Alerts</div>
+    <div class="value blue" id="kpi-total">{m["total"]}</div>
+  </div>
+  <div class="card">
+    <div class="label">True Positive</div>
+    <div class="value red" id="kpi-tp">{m["verdicts"]["TRUE_POSITIVE"]} <small style="font-size:.9rem">({m["verdict_pct"]["TRUE_POSITIVE"]}%)</small></div>
+  </div>
+  <div class="card">
+    <div class="label">False Positive</div>
+    <div class="value green" id="kpi-fp">{m["verdicts"]["FALSE_POSITIVE"]} <small style="font-size:.9rem">({m["verdict_pct"]["FALSE_POSITIVE"]}%)</small></div>
+  </div>
+  <div class="card">
+    <div class="label">Needs Review</div>
+    <div class="value yellow" id="kpi-nr">{m["verdicts"]["NEEDS_REVIEW"]} <small style="font-size:.9rem">({m["verdict_pct"]["NEEDS_REVIEW"]}%)</small></div>
+  </div>
+  <div class="card">
+    <div class="label">Avg Latency (LLM)</div>
+    <div class="value blue">{m["avg_latency_s"]}s</div>
+  </div>
+  <div class="card">
+    <div class="label">Fallback Rate</div>
+    <div class="value {'red' if m['fallback_rate_pct'] > 5 else 'gray'}">{m["fallback_rate_pct"]}%</div>
+  </div>
+  <div class="card">
+    <div class="label">Auto-FP Rate</div>
+    <div class="value green">{m["auto_fp_rate_pct"]}%</div>
+  </div>
+</div>
+
+<div class="charts">
+  <div class="panel">
+    <h2>Verdict Distribution</h2>
+    <canvas id="chartVerdict"></canvas>
+  </div>
+  <div class="panel">
+    <h2>Alerts per Day</h2>
+    <canvas id="chartPerDay"></canvas>
+  </div>
+</div>
+
+<div class="charts3">
+  <div class="panel">
+    <h2>By Alert Type</h2>
+    <canvas id="chartType"></canvas>
+  </div>
+  <div class="panel">
+    <h2>By Confidence</h2>
+    <canvas id="chartConf"></canvas>
+  </div>
+  <div class="panel">
+    <h2>By Status</h2>
+    <canvas id="chartStatus"></canvas>
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Top Rules by Volume</h2>
+  <table>
+    <thead><tr><th>Rule ID</th><th>Description</th><th style="text-align:right">Count</th></tr></thead>
+    <tbody id="rules-body"></tbody>
+  </table>
+</div>
+
+<script>
+const M = {data};
+const DARK = '#0f172a', GRID = '#334155', TEXT = '#94a3b8';
+const PALETTE = ['#60a5fa','#4ade80','#f87171','#facc15','#a78bfa','#34d399','#fb923c','#e879f9'];
+const cfg = (type, labels, datasets, opts={{}}) => ({{
+  type, data: {{labels, datasets}},
+  options: {{responsive:true, plugins:{{legend:{{labels:{{color:TEXT}}}}}}, ...opts}}
+}});
+
+// Verdict doughnut
+new Chart(document.getElementById('chartVerdict'), cfg('doughnut',
+  ['True Positive','False Positive','Needs Review'],
+  [{{data:[M.verdicts.TRUE_POSITIVE,M.verdicts.FALSE_POSITIVE,M.verdicts.NEEDS_REVIEW],
+    backgroundColor:['#f87171','#4ade80','#facc15'],borderWidth:0}}]
+));
+
+// Per-day bar
+new Chart(document.getElementById('chartPerDay'), cfg('bar',
+  Object.keys(M.per_day),
+  [{{data:Object.values(M.per_day),backgroundColor:'#3b82f6',borderRadius:4}}],
+  {{scales:{{x:{{ticks:{{color:TEXT}},grid:{{color:GRID}}}},y:{{ticks:{{color:TEXT,stepSize:1}},grid:{{color:GRID}}}}}}}}
+));
+
+// By type horizontal bar
+new Chart(document.getElementById('chartType'), cfg('bar',
+  Object.keys(M.by_type),
+  [{{data:Object.values(M.by_type),backgroundColor:PALETTE,borderRadius:4}}],
+  {{indexAxis:'y',scales:{{x:{{ticks:{{color:TEXT}},grid:{{color:GRID}}}},y:{{ticks:{{color:TEXT}},grid:{{color:'transparent'}}}}}}}}
+));
+
+// By confidence
+new Chart(document.getElementById('chartConf'), cfg('doughnut',
+  ['HIGH','MEDIUM','LOW'],
+  [{{data:[M.by_confidence.HIGH,M.by_confidence.MEDIUM,M.by_confidence.LOW],
+    backgroundColor:['#4ade80','#facc15','#f87171'],borderWidth:0}}]
+));
+
+// By status
+new Chart(document.getElementById('chartStatus'), cfg('doughnut',
+  ['OK (LLM)','Fallback','Auto-FP'],
+  [{{data:[M.by_status.ok,M.by_status.fallback,M.by_status.auto_fp],
+    backgroundColor:['#60a5fa','#f87171','#4ade80'],borderWidth:0}}]
+));
+
+// Top rules table
+const tbody = document.getElementById('rules-body');
+M.top_rules.forEach(r => {{
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><code style="color:#60a5fa">${{r.rule_id}}</code></td><td>${{r.description}}</td><td style="text-align:right;font-weight:600">${{r.count}}</td>`;
+  tbody.appendChild(tr);
+}});
+if (!M.top_rules.length) {{
+  tbody.innerHTML = '<tr><td colspan="3" style="color:#94a3b8;text-align:center;padding:20px">No data yet</td></tr>';
+}}
+</script>
+</body>
+</html>"""
 
 
 # ---------------------------------------------------------------------------
