@@ -75,7 +75,7 @@ _None (Shuffle integration complete; pipeline validated end-to-end)_
 
 ## Next immediate step
 
-v2.2 is complete and live in shadow mode. The only pending action is growing the corpus to ≥200 alerts, then running validate_threshold.py and flipping RAG_SHADOW_MODE=false to activate auto-classification. Corpus grows with each new alert ingested; monitor shadow logs in metrics/triage_log.csv for precision metrics before flipping. No code changes required.
+v2.2 is complete and live in shadow mode, including the metrics dashboard (GET /metrics + GET /dashboard). The only pending action is growing the corpus to ≥200 alerts, then running validate_threshold.py and flipping RAG_SHADOW_MODE=false to activate auto-classification. Corpus grows with each new alert ingested; monitor shadow logs in metrics/triage_log.csv for precision metrics before flipping. No code changes required.
 
 ## Technical debt / pending (post-sanitization)
 
@@ -127,8 +127,15 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
   - ChromaDB embedded in-process (PersistentClient at ./chroma_db, bind-mounted); Ollama nomic-embed-text via /api/embeddings (no ML deps in image)
   - Backfill: 31 alerts indexed (18 TP, 9 NR, 4 FP); corpus foundation established
   - Shadow validation: auto-classification (Function 1) awaiting corpus growth to ≥200 alerts; context injection (Function 2) live immediately
-  - Test suite: 318 tests (282 prior + 27 retriever + 9 correlation_summary), 0 regressions
+  - Test suite: 334 tests (282 prior + 27 retriever + 9 correlation_summary + 14 metrics + 2 prompt), 0 regressions
   - Validated end-to-end: Windows FP detected (auto-similar), SSH NR contextualized, Apache TP enriched; all paths confirmed working
+
+[x] **Metrics Dashboard** — COMPLETE
+  - `tools/metrics.py`: `compute_metrics(log_path=None) → dict` reads triage_log.csv; returns total, first/last_alert, verdicts, verdict_pct, by_type/status/confidence, avg_latency_ms (ok-only), fallback/auto_fp rates, per_day (sorted), top_rules (top 10)
+  - Fail-safe: never raises; returns `_empty()` on file missing/CSV corruption
+  - `main.py` endpoints: `GET /metrics` (JSON) + `GET /dashboard` (HTML self-contained with Chart.js, 7 KPI cards, 5 charts, top-rules table)
+  - `tests/test_metrics.py`: 14 deterministic tests with CSV fixtures in tmp_path
+  - Zero new Python dependencies (Chart.js from CDN)
 
 [x] **v2.2 COMPLETE & SHADOW-MODE DEPLOYED** (implementation details)
   - Embeddings: Ollama `nomic-embed-text` via /api/embeddings (reuses deployed Ollama host; no heavy ML deps)
@@ -159,4 +166,4 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 - [x] **v2.2: Runtime learning** — RAG + embeddings + ChromaDB. Implemented in shadow-mode (see v2.2 section above).
 - [x] **v2.1: Direct case creation in TheHive** — implemented via Execute Python node in Shuffle (POST /api/v1/case directly, bypasses Shuffle's broken Create case node).
 - Automatic FP filtering based on real v1 metrics (v2.3+).
-- Visualizations (matplotlib) / metrics dashboard.
+- [x] **Metrics dashboard** — Implemented: Chart.js dashboard via GET /dashboard + GET /metrics JSON endpoint. No matplotlib needed.
