@@ -13,6 +13,8 @@ Design notes:
   fallback (verdict=NEEDS_REVIEW, confidence=LOW, risk_score=5,
   reasoner_meta.status="fallback").  Both ``ok`` and ``fallback`` are valid;
   tests validate STRUCTURE only and merely report the status.
+- Marked ``live``: excluded from the default run (see pytest.ini).
+  Run explicitly with ``pytest -m live``.
 - LOG_PATH is overridden *before* importing main so test runs never pollute
   the production metrics/triage_log.csv.
 """
@@ -25,6 +27,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
+pytestmark = pytest.mark.live
 
 # ---------------------------------------------------------------------------
 # Override LOG_PATH BEFORE importing main so the module-level logger singleton
