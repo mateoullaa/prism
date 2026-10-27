@@ -5,8 +5,8 @@ allowed-tools: Read, Edit, Grep, Glob, Bash, Agent
 
 Take a checkpoint of the current state.
 
-1. Delegate to the `scribe` subagent: update `PROGRESS.md` (real status of components and
-   next step) and add to `memory.md` any new decisions or learnings from this session.
+1. Delegate to the `scribe` subagent: update `docs/development/PROGRESS.md` (real status of components and
+   next step) and add to `docs/development/memory.md` any new decisions or learnings from this session.
    Have it compact any `.md` file approaching 200 lines.
 
 2. Verify hygiene before committing:
@@ -18,4 +18,4 @@ Take a checkpoint of the current state.
    extraction with tests"). Do not commit without their confirmation.
 
 4. If the session is long and context is saturated, suggest closing and opening a new session
-   (the harness reloads context via init.sh + CLAUDE.md + memory.md + PROGRESS.md).
+   (the harness reloads context via docs/development/init.sh + CLAUDE.md + docs/development/memory.md + docs/development/PROGRESS.md).

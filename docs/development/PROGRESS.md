@@ -156,10 +156,10 @@ Test suite: 221 passing (parser 32 + enricher + reasoner + router 29 + logger 23
 
 [x] **Docker deployment — COMPLETE & VALIDATED**
   - Dockerfile: python:3.12-slim, prod dependencies only (pytest excluded)
-  - docker-compose.yml: port 8000, restart unless-stopped, volumes para metrics/ y config/
+  - docker-compose.yml: port 8000, restart unless-stopped, volumes for metrics/ and config/
   - Ollama connectivity: host-gateway:host-gateway → http://host-gateway:11434
-  - .dockerignore: excluye .venv/, tests/, .env, .git/
-  - Validado end-to-end desde Shuffle: Apache TRUE_POSITIVE → TheHive caso + observable ✅
+  - .dockerignore: excludes .venv/, tests/, .env, .git/
+  - Validated end-to-end from Shuffle: Apache TRUE_POSITIVE → TheHive case + observable
 
 ## v2.x ideas (DO NOT implement now)
 

@@ -9,7 +9,7 @@ do NOT write the code yourself: coordinate the subagents.
 
 Steps:
 
-1. **Context.** Confirm that `$ARGUMENTS` is the next component according to `PROGRESS.md` and
+1. **Context.** Confirm that `$ARGUMENTS` is the next component according to `docs/development/PROGRESS.md` and
    respects the build order. If it is not, notify the user before continuing.
 
 2. **Build.** Delegate to the `builder` subagent: implement `tools/$ARGUMENTS.py` and its
@@ -22,9 +22,9 @@ Steps:
      until the reviewer says "APPROVED".
    - If the reviewer approves: continue.
 
-4. **Document.** Delegate to the `scribe` subagent: write `workflows/$ARGUMENTS.md`,
-   mark the component as `[x]` in `PROGRESS.md`, update the "next immediate step",
-   and note any learnings in `memory.md`.
+4. **Document.** Delegate to the `scribe` subagent: write `docs/development/workflows/$ARGUMENTS.md`,
+   mark the component as `[x]` in `docs/development/PROGRESS.md`, update the "next immediate step",
+   and note any learnings in `docs/development/memory.md`.
 
 5. **Wrap-up.** Summarize for the user in a few lines: what was built, what the reviewer
    verified, and what the next step is. Suggest `/checkpoint` if committing makes sense.

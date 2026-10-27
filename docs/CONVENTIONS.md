@@ -42,5 +42,5 @@ Load when writing or reviewing code.
 - Relative paths within the repo when possible.
 
 ## Workflows (WAT)
-- When a tool is finished, the `scribe` writes/updates `workflows/<name>.md` with: objective,
+- When a tool is finished, the `scribe` writes/updates `docs/development/workflows/<name>.md` with: objective,
   inputs, output, how to run it, edge cases, and learnings. Do not create workflows in advance.

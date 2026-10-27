@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash init.sh",
+            "command": "bash docs/development/init.sh",
             "timeout": 120
           }
         ]

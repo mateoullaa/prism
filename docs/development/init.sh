@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# init.sh — Project health check. Runs at the start of each session
+# docs/development/init.sh — Project health check (run from the repo root). Runs at the start of each session
 # (via SessionStart hook) and before any change. If something critical fails,
 # prints "INIT FAILED" and exits with a non-zero code. The agent MUST NOT continue.
 
@@ -8,7 +8,7 @@ FAIL=0
 echo "=== INIT: Prism ==="
 
 # 1. Required core files
-REQUIRED=("CLAUDE.md" "memory.md" "PROGRESS.md" \
+REQUIRED=("CLAUDE.md" "docs/development/memory.md" "docs/development/PROGRESS.md" \
           "docs/ARCHITECTURE.md" "docs/CONVENTIONS.md")
 for f in "${REQUIRED[@]}"; do
   if [[ -f "$f" ]]; then echo "  ok   $f"; else echo "  MISS $f"; FAIL=1; fi
@@ -19,7 +19,7 @@ if [[ -f "docs/CONTEXT.md" ]]; then echo "  ok   docs/CONTEXT.md (local)"; else
   echo "  info docs/CONTEXT.md not present (local-only, optional)"; fi
 
 # 2. Directory structure
-for d in tools tests workflows data/sample_alerts .claude/agents .claude/commands; do
+for d in tools tests docs/development/workflows data/sample_alerts .claude/agents .claude/commands; do
   if [[ -d "$d" ]]; then echo "  ok   $d/"; else echo "  MISS $d/"; FAIL=1; fi
 done
 

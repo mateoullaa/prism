@@ -8,17 +8,17 @@ This file is preloaded every session. It is deliberately short. Details live in
 
 ## Startup protocol (MANDATORY, before any change)
 
-1. The `SessionStart` hook has already run `init.sh`. Check its output.
+1. The `SessionStart` hook has already run `docs/development/init.sh`. Check its output.
    - If it says **`INIT FAILED`** → DO NOT continue. Explain what failed and ask the user for help.
    - If it says `INIT OK` → proceed.
-2. Read `memory.md` → user decisions and learnings (self-improvement).
-3. Read `PROGRESS.md` → build status and next step.
+2. Read `docs/development/memory.md` → user decisions and learnings (self-improvement).
+3. Read `docs/development/PROGRESS.md` → build status and next step.
 4. Only then propose actions.
 
 ## What is the project (summary)
 
 SOC triage agent: webhook that receives Wazuh alerts, classifies them, enriches IOCs
-with public APIs (replaces Cortex), and uses a local LLM (Ollama) to classify FP/TP,
+with public threat-intel APIs, and uses a local LLM (Ollama) to classify FP/TP,
 map MITRE ATT&CK, and suggest next steps. Returns the verdict to Shuffle.
 Full design details → `docs/ARCHITECTURE.md`.
 
@@ -27,7 +27,7 @@ Full design details → `docs/ARCHITECTURE.md`.
 - **v1 (LIVE):** webhook + intelligence analysis → returns to Shuffle.
 - **v2.1 (COMPLETE):** Apache alert type, MITRE mapping, risk_score enforcement. Live in production.
 - **v2.2 (SHADOW-MODE):** RAG runtime learning with ChromaDB + embeddings + auto-FP classification. Deployed in shadow mode (RAG_SHADOW_MODE=true by default; auto-classification logs "would_be" but doesn't act until precision validated in production).
-- **v2.x (DO NOT implement):** Automatic FP filtering via real metrics, additional enrichment (file hash, logon). If a task is v2.x future, note it in `PROGRESS.md` and do not implement.
+- **v2.x (DO NOT implement):** Automatic FP filtering via real metrics, additional enrichment (file hash, logon). If a task is v2.x future, note it in `docs/development/PROGRESS.md` and do not implement.
 
 ## Agent team (delegate, don't do everything)
 
@@ -45,22 +45,22 @@ coordination for yourself.
 
 - `/build-tool <name>` → full build cycle for a tool (build → review → scribe).
 - `/review` → runs the reviewer on the latest change.
-- `/checkpoint` → updates PROGRESS.md and memory.md, and proposes a commit.
+- `/checkpoint` → updates docs/development/PROGRESS.md and docs/development/memory.md, and proposes a commit.
 
 ## Hard rules
 
 - Secrets ONLY in `.env` (gitignored). Never in code or `.md` files.
 - Never commit real alerts with company data. Anonymized fixtures only.
-- Strict build order (see `PROGRESS.md`). Do not skip components.
+- Strict build order (see `docs/development/PROGRESS.md`). Do not skip components.
 - LLM output must always be valid, validated JSON.
 - Code and environment conventions → `docs/CONVENTIONS.md`. User context → `docs/CONTEXT.md`.
 
 ## Self-improvement loop
 
 On error: (1) identify the cause, (2) fix it, (3) verify with the reviewer,
-(4) the `scribe` records the learning in `memory.md`, (5) continue more robustly.
+(4) the `scribe` records the learning in `docs/development/memory.md`, (5) continue more robustly.
 When the user corrects something or asks to remember something → the `scribe` writes it
-to `memory.md` immediately, concisely.
+to `docs/development/memory.md` immediately, concisely.
 
 ## Skills and MCP
 
