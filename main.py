@@ -295,14 +295,14 @@ new Chart(document.getElementById('chartVerdict'), cfg('doughnut',
 new Chart(document.getElementById('chartPerDay'), cfg('bar',
   Object.keys(M.per_day),
   [{{data:Object.values(M.per_day),backgroundColor:'#3b82f6',borderRadius:4}}],
-  {{scales:{{x:{{ticks:{{color:TEXT}},grid:{{color:GRID}}}},y:{{ticks:{{color:TEXT,stepSize:1}},grid:{{color:GRID}}}}}}}}
+  {{plugins:{{legend:{{display:false}}}},scales:{{x:{{ticks:{{color:TEXT}},grid:{{color:GRID}}}},y:{{ticks:{{color:TEXT,precision:0}},grid:{{color:GRID}}}}}}}}
 ));
 
 // By type horizontal bar
 new Chart(document.getElementById('chartType'), cfg('bar',
   Object.keys(M.by_type),
   [{{data:Object.values(M.by_type),backgroundColor:PALETTE,borderRadius:4}}],
-  {{indexAxis:'y',scales:{{x:{{ticks:{{color:TEXT}},grid:{{color:GRID}}}},y:{{ticks:{{color:TEXT}},grid:{{color:'transparent'}}}}}}}}
+  {{indexAxis:'y',plugins:{{legend:{{display:false}}}},scales:{{x:{{ticks:{{color:TEXT}},grid:{{color:GRID}}}},y:{{ticks:{{color:TEXT}},grid:{{color:'transparent'}}}}}}}}
 ));
 
 // By confidence
